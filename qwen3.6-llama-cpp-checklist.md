@@ -425,99 +425,44 @@ parallel = 1
 '@ | Set-Content -Path (Join-Path $configDir "models.ini") -Encoding utf8
 ```
 
-### 3.2 Три скрипта одной вставкой
+### 3.2 Автозапуск и переключение
 
-Этот блок многострочный. Вставлять его в консоль можно после обновления PSReadLine до 2.2 (см. начало файла). Иначе строки перевернутся. Сервер без этих файлов уже запускается одной строкой в разделе «Запуск сервера».
+Оба режима — один и тот же GGUF. На 32 GB в памяти живёт только один процесс. Переключение останавливает текущий `llama-server.exe` и загружает модель заново: это несколько минут чтения с диска, не мгновенная смена флага. После включения компьютера ручной запуск не нужен: ярлык в автозагрузке сам поднимает режим **think** в свёрнутом окне, пока идёт вход в Windows.
 
-Блок **создаёт файлы**. Строки внутри одинарных кавычек в консоль по отдельности не копируют.
-
-`$PSScriptRoot` в готовых `Start-Qwen-*.ps1` срабатывает только когда PowerShell запускает сам файл. В интерактивной строке эта переменная пустая.
+Скрипты лежат в репозитории: `scripts/Start-Qwen-Think.ps1`, `scripts/Start-Qwen-Code.ps1`, `scripts/Switch-Qwen.ps1`. Одна строка скачивает их и создаёт ярлыки. Если сервер уже слушает порт 8001, это окно не трогает.
 
 ```powershell
-$SCRIPTS = "G:\localAI\AI\scripts"
-New-Item -ItemType Directory -Force -Path $SCRIPTS | Out-Null
-
-@'
-$cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"
-if (-not (Test-Path (Join-Path $cudaBin "cudart64_13.dll"))) {
-    $cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"
-}
-$env:Path = "$cudaBin;" + $env:Path
-$env:LLAMA_CACHE = "G:\localAI\Models\llama"
-
-$script:SERVER = "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe"
-$MODEL_DIR = Join-Path $env:LLAMA_CACHE "unsloth\Qwen3.6-35B-A3B-GGUF"
-$MODEL_GGUF = (Get-ChildItem $MODEL_DIR -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName
-$MMPROJ = (Get-ChildItem $MODEL_DIR -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName
-
-if (-not (Test-Path $script:SERVER)) { throw "llama-server.exe not found: $script:SERVER" }
-if (-not $MODEL_GGUF) { throw "GGUF not found in $MODEL_DIR" }
-if (-not $MMPROJ) { throw "mmproj not found in $MODEL_DIR" }
-
-$outDir = Split-Path $script:SERVER
-foreach ($dll in "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll") {
-    $src = Join-Path $cudaBin $dll
-    if (Test-Path $src) { Copy-Item $src (Join-Path $outDir $dll) -Force }
-}
-
-$script:COMMON = @(
-    "--model", $MODEL_GGUF,
-    "--mmproj", $MMPROJ,
-    "--host", "127.0.0.1",
-    "--ctx-size", "32768",
-    "--n-gpu-layers", "99",
-    "--n-cpu-moe", "22",
-    "--cache-ram", "8192",
-    "--parallel", "1",
-    "--no-mmproj-offload"
-)
-'@ | Set-Content -Path (Join-Path $SCRIPTS "Qwen-Common.ps1") -Encoding utf8
-
-@'
-. "$PSScriptRoot\Qwen-Common.ps1"
-$env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"preserve_thinking":true}'
-& $SERVER @COMMON `
-  --port 8001 `
-  --alias "qwen3.6-35b-a3b-think" `
-  --reasoning on `
-  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 `
-  --presence-penalty 0.0
-'@ | Set-Content -Path (Join-Path $SCRIPTS "Start-Qwen-Think.ps1") -Encoding utf8
-
-@'
-. "$PSScriptRoot\Qwen-Common.ps1"
-& $SERVER @COMMON `
-  --port 8002 `
-  --alias "qwen3.6-35b-a3b-instruct" `
-  --reasoning off `
-  --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 `
-  --presence-penalty 1.5
-'@ | Set-Content -Path (Join-Path $SCRIPTS "Start-Qwen-Code.ps1") -Encoding utf8
-
-Get-ChildItem $SCRIPTS
+$dir = "G:\localAI\AI\scripts"; New-Item -ItemType Directory -Force -Path $dir | Out-Null; foreach ($f in "Start-Qwen-Think.ps1","Start-Qwen-Code.ps1","Switch-Qwen.ps1") { Invoke-WebRequest "https://raw.githubusercontent.com/telebekht/localAIs/master/scripts/$f" -OutFile (Join-Path $dir $f) -UseBasicParsing }; $w = New-Object -ComObject WScript.Shell; $startup = $w.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")); $startup.TargetPath = "powershell.exe"; $startup.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$dir\Start-Qwen-Think.ps1`""; $startup.WorkingDirectory = "G:\localAI\AI\llama.cpp"; $startup.WindowStyle = 7; $startup.Save(); foreach ($pair in @(@("Qwen Think","think"), @("Qwen Code","code"))) { $lnk = $w.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "$($pair[0]).lnk")); $lnk.TargetPath = "powershell.exe"; $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$dir\Switch-Qwen.ps1`" $($pair[1])"; $lnk.WorkingDirectory = "G:\localAI\AI\llama.cpp"; $lnk.Save() }; Get-ChildItem $dir; Get-ChildItem ([Environment]::GetFolderPath("Desktop")) -Filter "Qwen*.lnk"; Get-Item (Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")
 ```
 
-В каталоге должны появиться `Qwen-Common.ps1`, `Start-Qwen-Think.ps1`, `Start-Qwen-Code.ps1`.
+Что появляется:
 
-Для точного кода в thinking-режиме в `Start-Qwen-Think.ps1` заменить `--temp 1.0` на `--temp 0.6`. При бессвязном тексте в `Qwen-Common.ps1` в массив `$script:COMMON` добавить `"--cache-type-k", "bf16", "--cache-type-v", "bf16"`.
+| Ярлык | Где | Что делает |
+| --- | --- | --- |
+| `Qwen` | Автозагрузка Windows | При входе в систему свёрнуто запускает think, порт **8001** |
+| `Qwen Think` | Рабочий стол | Останавливает текущий сервер и снова запускает think, порт **8001** |
+| `Qwen Code` | Рабочий стол | Останавливает текущий сервер и запускает code, порт **8002** |
 
-### 3.3 Запуск скрипта
+Двойной щелчок по ярлыку на рабочем столе — всё переключение. Дождаться в этом окне `HTTP server listening`. Предыдущее окно сервера после остановки процесса можно закрыть. Два ярлыка подряд не запускать, пока в новом окне не появится `listening`: второй старт убьёт первый и начнёт загрузку ещё раз.
 
-Один процесс за раз.
+Чтобы после входа в систему поднимался code, а не think, в свойствах ярлыка автозагрузки заменить `Start-Qwen-Think.ps1` на `Start-Qwen-Code.ps1`.
+
+Проверка, что автозагрузка на месте:
+
+```powershell
+Get-Item (Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")
+```
+
+### 3.3 Два режима
+
+Один процесс за раз. Sampling по [Unsloth Qwen3.6](https://unsloth.ai/docs/models/qwen3.6).
 
 | Профиль | Файл | Порт | Флаг | Задачи |
 | --- | --- | --- | --- | --- |
 | DeepThink | `Start-Qwen-Think.ps1` | 8001 | `--reasoning on` | траблшутинг, архитектура, длинные рассуждения |
 | DevFast | `Start-Qwen-Code.ps1` | 8002 | `--reasoning off` | код, рефакторинг, короткие итерации |
 
-Sampling по [Unsloth Qwen3.6](https://unsloth.ai/docs/models/qwen3.6).
-
-```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"
-```
-
-Окно не закрывать. Ctrl+C останавливает сервер. Для кода — тот же приём с `Start-Qwen-Code.ps1` после остановки первого.
+Для точного кода в thinking-режиме в `Start-Qwen-Think.ps1` заменить `--temp 1.0` на `--temp 0.6`. При бессвязном тексте в оба скрипта, в строку запуска `llama-server.exe`, добавить `--cache-type-k bf16 --cache-type-v bf16`.
 
 ### 3.4 Первый запуск и тюнинг
 
@@ -567,7 +512,7 @@ $r = Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/chat/completions" -Method 
 
 ### 4.3 Code на порту 8002
 
-Остановить процесс на 8001. Запустить `G:\localAI\AI\scripts\Start-Qwen-Code.ps1`. Тот же запрос с `model = "qwen3.6-35b-a3b-instruct"` и URL `http://127.0.0.1:8002/v1/chat/completions`.
+Двойной щелчок по ярлыку **Qwen Code**. Дождаться `HTTP server listening` на порту 8002. Тот же запрос с `model = "qwen3.6-35b-a3b-instruct"` и URL `http://127.0.0.1:8002/v1/chat/completions`.
 
 ### 4.4 Vision: llama-mtmd-cli
 
@@ -598,7 +543,7 @@ $dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
 
 ## Фаза 5 — Cursor
 
-1. Запущен `Start-Qwen-Code.ps1`, порт **8002**.
+1. Ярлык **Qwen Code**, в окне есть `HTTP server listening`, порт **8002**.
 2. Cursor **Settings** (Ctrl+,) → **Models**.
 3. API Key: `sk-local`.
 4. Override OpenAI Base URL: `http://127.0.0.1:8002/v1`.
@@ -647,7 +592,7 @@ print(r.choices[0].message.content)
 ## Фаза 7 — По желанию
 
 - MTP: отдельный `MTP-GGUF`, `--spec-draft-n-max 2`. Это около +1 GB VRAM.
-- Планировщик заданий: вход в систему → `G:\localAI\AI\scripts\Start-Qwen-Code.ps1`.
+- Автозапуск и ярлыки переключения уже описаны в разделе 3.2.
 - Замер tok/s до и после изменения `n-cpu-moe`.
 
 ---
