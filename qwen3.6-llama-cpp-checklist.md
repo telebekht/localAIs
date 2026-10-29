@@ -1,6 +1,14 @@
 # Чек-лист: Qwen3.6 на i7-14700KF + 32GB + RTX 3060 12GB (llama.cpp)
 
-Все команды ниже — **Windows PowerShell**. Блок вставляется целиком, с первой строки. Содержимое файлов `.ps1` в консоль не копируется: для этого есть один блок, который сам записывает файлы на диск.
+Все команды ниже — **Windows PowerShell**. В штатном PSReadLine 2.0 многострочная вставка приходит **задом наперёд**: в консоли первой оказывается последняя строка блока, и `Join-Path` падает с `Path = NULL`. Пока модуль не обновлён, в консоль вставляется только **одна строка**.
+
+Починить вставку (один раз, потом новое окно PowerShell):
+
+```powershell
+Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber
+```
+
+Проверка в новом окне: `(Get-Module PSReadLine).Version` — нужно **2.2** или новее. После этого многострочные блоки из этого файла вставляются как написаны.
 
 Пути этой машины (уже так и лежит на диске):
 
@@ -63,79 +71,21 @@ flowchart LR
 
 ## Запуск сервера, если сборка и модель уже на месте
 
-`llama-server.exe` уже собран, GGUF уже скачан. Фазы 0–2 повторять не нужно. Откройте новое окно PowerShell и вставьте блок целиком.
+`llama-server.exe` уже собран, GGUF уже скачан. Фазы 0–2 повторять не нужно. Если прошлый запуск ещё висит — Ctrl+C.
 
-Перед этим закройте предыдущий зависший запуск (Ctrl+C). Строку `. "$PSScriptRoot\Qwen-Common.ps1"` в консоль не вставлять: в интерактивном окне `$PSScriptRoot` пустой, и PowerShell ищет `\Qwen-Common.ps1`.
+Команда ниже — **одна строка**. Её можно вставлять в текущий PowerShell даже со старым PSReadLine. Переносов внутри нет, переворачивать нечего.
 
 ```powershell
-$LLAMA_ROOT = "G:\localAI\AI\llama.cpp"
-$LLAMA_CACHE = "G:\localAI\Models\llama"
-$CUDA_ROOT = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"
-$CUDA_BIN = Join-Path $CUDA_ROOT "bin\x64"
-if (-not (Test-Path (Join-Path $CUDA_BIN "cudart64_13.dll"))) {
-    $CUDA_BIN = Join-Path $CUDA_ROOT "bin"
-}
-$env:Path = "$CUDA_BIN;" + $env:Path
-
-$SERVER = Join-Path $LLAMA_ROOT "build\bin\Release\llama-server.exe"
-$MODEL_DIR = Join-Path $LLAMA_CACHE "unsloth\Qwen3.6-35B-A3B-GGUF"
-$MODEL_GGUF = (Get-ChildItem $MODEL_DIR -Filter "*UD-Q4_K_XL*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-$MMPROJ = (Get-ChildItem $MODEL_DIR -Filter "*mmproj*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
-
-foreach ($dll in "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll") {
-    $src = Join-Path $CUDA_BIN $dll
-    if (Test-Path $src) { Copy-Item $src (Join-Path (Split-Path $SERVER) $dll) -Force }
-}
-
-if (-not (Test-Path $SERVER)) { throw "Нет файла: $SERVER" }
-if (-not $MODEL_GGUF) { throw "Нет *UD-Q4_K_XL*.gguf в $MODEL_DIR" }
-if (-not $MMPROJ) { throw "Нет *mmproj*.gguf в $MODEL_DIR" }
-
-Write-Host "SERVER: $SERVER"
-Write-Host "MODEL:  $MODEL_GGUF"
-Write-Host "MMPROJ: $MMPROJ"
-
-& $SERVER `
-  --model $MODEL_GGUF `
-  --mmproj $MMPROJ `
-  --host 127.0.0.1 `
-  --port 8001 `
-  --alias "qwen3.6-35b-a3b-think" `
-  --ctx-size 32768 `
-  --n-gpu-layers 99 `
-  --n-cpu-moe 22 `
-  --cache-ram 8192 `
-  --parallel 1 `
-  --no-mmproj-offload `
-  --reasoning on `
-  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 `
-  --presence-penalty 0.0 `
-  --chat-template-kwargs '{"preserve_thinking":true}'
+$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; Copy-Item "$bin\cudart64_13.dll","$bin\cublas64_13.dll","$bin\cublasLt64_13.dll" "G:\localAI\AI\llama.cpp\build\bin\Release" -Force; Write-Host "MODEL: $m"; Write-Host "MMPROJ: $p"; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0 --chat-template-kwargs '{"preserve_thinking":true}'
 ```
 
 Окно не закрывать. Успех — строка `HTTP server listening` и порт **8001**. Остановка — Ctrl+C.
 
-Режим кода (только после остановки thinking-сервера), порт **8002**:
+Режим кода, порт **8002**, только после Ctrl+C в окне thinking. Тоже одна строка:
 
 ```powershell
-& $SERVER `
-  --model $MODEL_GGUF `
-  --mmproj $MMPROJ `
-  --host 127.0.0.1 `
-  --port 8002 `
-  --alias "qwen3.6-35b-a3b-instruct" `
-  --ctx-size 32768 `
-  --n-gpu-layers 99 `
-  --n-cpu-moe 22 `
-  --cache-ram 8192 `
-  --parallel 1 `
-  --no-mmproj-offload `
-  --reasoning off `
-  --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 `
-  --presence-penalty 1.5
+$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
 ```
-
-Второй блок использует `$SERVER`, `$MODEL_GGUF` и `$MMPROJ` из того же окна. Если окно новое, сначала вставьте первый блок до строки `Write-Host`, без запуска `& $SERVER`, либо запускайте готовые скрипты из фазы 3.
 
 Проверка из другого окна PowerShell:
 
@@ -681,7 +631,8 @@ print(r.choices[0].message.content)
 | CMake пишет `CUDA Toolkit found`, затем падает на CUDA | В `build` остался кэш прошлой попытки. Удалить `build` и конфигурировать с `--fresh`. |
 | `llama-server.exe --version` молчит | Закрыть диалог отсутствующей DLL. Добавить в PATH `CUDA\v13.4\bin\x64` и скопировать `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` в `build\bin\Release`. |
 | `huggingface-cli` / `hf` не распознано | `python -c "from huggingface_hub import login; login()"`. Скачивание — `snapshot_download` из фазы 2.2. |
-| `Имя "\Qwen-Common.ps1" не распознано` | В консоль попала строка с `$PSScriptRoot`. Запускать файл: `& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"`, либо блок из раздела «Запуск сервера». |
+| `Имя "\Qwen-Common.ps1" не распознано` | В консоль попала строка с `$PSScriptRoot`. Запускать файл: `& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"`, либо одну строку из раздела «Запуск сервера». |
+| `Join-Path` и `Path = NULL`, строки блока в консоли идут снизу вверх | PSReadLine 2.0 переворачивает многострочную вставку. Сервер — одной строкой из раздела «Запуск сервера». Затем `Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber` и новое окно PowerShell. |
 | Сервер ищется в `D:\AI\...` | Старый пример пути. На этой машине корень — `G:\localAI\AI\llama.cpp`. |
 | CUDA OOM | Поднять `n-cpu-moe`, квант Q3, `parallel 1`. |
 | RAM OOM, swap | Уменьшить `ctx-size`. Держать один сервер. |
