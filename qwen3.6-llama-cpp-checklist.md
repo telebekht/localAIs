@@ -76,7 +76,7 @@ flowchart LR
 Команда ниже — **одна строка**. Её можно вставлять в текущий PowerShell даже со старым PSReadLine. Переносов внутри нет, переворачивать нечего.
 
 ```powershell
-$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; Copy-Item "$bin\cudart64_13.dll","$bin\cublas64_13.dll","$bin\cublasLt64_13.dll" "G:\localAI\AI\llama.cpp\build\bin\Release" -Force; Write-Host "MODEL: $m"; Write-Host "MMPROJ: $p"; $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"preserve_thinking":true}'; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0
+$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; Copy-Item "$bin\cudart64_13.dll","$bin\cublas64_13.dll","$bin\cublasLt64_13.dll" "G:\localAI\AI\llama.cpp\build\bin\Release" -Force; Write-Host "MODEL: $m"; Write-Host "MMPROJ: $p"; $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"preserve_thinking":true}'; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 0.0.0.0 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0
 ```
 
 PowerShell 5.1 вырезает кавычки из аргумента нативной программы, поэтому `--chat-template-kwargs '{"preserve_thinking":true}'` доходит как `{preserve_thinking:true}` и JSON ломается. Тот же JSON задаётся переменной `LLAMA_ARG_CHAT_TEMPLATE_KWARGS` до запуска, её llama-server читает сам.
@@ -86,7 +86,7 @@ PowerShell 5.1 вырезает кавычки из аргумента нати�
 Режим кода, порт **8002**, только после Ctrl+C в окне thinking. Тоже одна строка:
 
 ```powershell
-$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
+$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 0.0.0.0 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
 ```
 
 Проверка из другого окна PowerShell:
@@ -552,6 +552,26 @@ $dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
 ```powershell
 Invoke-RestMethod -Uri "http://127.0.0.1:8002/v1/models"
 ```
+
+## Телефон, веб-интерфейс
+
+Сервер с `--host 0.0.0.0` принимает соединения из домашней сети. IDEA по-прежнему ходит на `127.0.0.1`. Телефон и компьютер должны быть в одном Wi-Fi, не в мобильном интернете и не в гостевой сети.
+
+Один раз в PowerShell от администратора:
+
+```powershell
+New-NetFirewallRule -DisplayName "llama-server 8001" -Direction Inbound -Protocol TCP -LocalPort 8001 -Action Allow; New-NetFirewallRule -DisplayName "llama-server 8002" -Direction Inbound -Protocol TCP -LocalPort 8002 -Action Allow
+```
+
+Узнать адрес компьютера:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.PrefixOrigin -ne "WellKnown" } | Select-Object IPAddress, InterfaceAlias
+```
+
+В браузере телефона открыть `http://IP:8002` для Code или `http://IP:8001` для Think. Это встроенный веб-интерфейс llama-server, в конце адреса ничего не дописывать. Порт живой только пока запущен соответствующий ярлык.
+
+В интернет этот порт не пробрасывать: ключа на сервере нет, страница доступна всем в той же сети.
 
 ---
 

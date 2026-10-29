@@ -24,4 +24,4 @@ Write-Host "MODEL: $model"
 Write-Host "MMPROJ: $mmproj"
 Write-Host "MODE: think  PORT: 8001"
 
-& $server --model $model --mmproj $mmproj --host 127.0.0.1 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0
+& $server --model $model --mmproj $mmproj --host 0.0.0.0 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0

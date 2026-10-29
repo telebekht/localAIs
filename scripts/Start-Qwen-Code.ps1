@@ -23,4 +23,4 @@ Write-Host "MODEL: $model"
 Write-Host "MMPROJ: $mmproj"
 Write-Host "MODE: code  PORT: 8002"
 
-& $server --model $model --mmproj $mmproj --host 127.0.0.1 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
+& $server --model $model --mmproj $mmproj --host 0.0.0.0 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
