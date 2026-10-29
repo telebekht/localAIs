@@ -1,18 +1,32 @@
 # Чек-лист: Qwen3.6 на i7-14700KF + 32GB + RTX 3060 12GB (llama.cpp)
 
+Все команды ниже — **Windows PowerShell**. Блок вставляется целиком, с первой строки. Содержимое файлов `.ps1` в консоль не копируется: для этого есть один блок, который сам записывает файлы на диск.
+
+Пути этой машины (уже так и лежит на диске):
+
+| Что | Путь |
+| --- | --- |
+| Исходники и сборка | `G:\localAI\AI\llama.cpp` |
+| Сервер | `G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe` |
+| Модели | `G:\localAI\Models\llama` |
+| Скрипты запуска | `G:\localAI\AI\scripts` |
+| CUDA Toolkit | `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4` |
+
+Visual Studio на этой машине — **18 2026** (MSVC 19.51). Для неё нужен **CUDA Toolkit 13.4**. CUDA 12.6 в каталоге `VC\v180\BuildCustomizations` файлов `CUDA *.props` не кладёт, конфигурация CMake на этом обрывается.
+
+---
+
 ## Реалистичная цель железа
 
+| Модель Qwen3.6 | На вашей конфигурации |
+| --- | --- |
+| **35B-A3B (MoE, официальная)** | **Основной выбор**: ~3B активных параметров на токен; веса Q4 ~23 GB суммарной памяти (RAM+VRAM), у вас **12 GB VRAM + ~24–28 GB свободной RAM** — помещается при гибриде и `n-cpu-moe`. |
+| **27B (dense)** | Q4 ~**19 GB только на 4K контекста**. Полный GPU-only на 12 GB невозможен, offload даст ~3–8 tok/s. |
+| **NVFP4** | Только Blackwell (RTX 50xx). На 3060 не используется. |
 
-| Модель Qwen3.6                 | На вашей конфигурации                                                                                                                                                                      |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **35B-A3B (MoE, официальная)** | **Основной выбор**: ~3B активных параметров на токен; веса Q4 ~23 GB *суммарной* памяти (RAM+VRAM), у вас **12 GB VRAM + ~24–28 GB свободной RAM** — помещается при гибриде и `n-cpu-moe`. |
-| **27B (dense)**                | Q4 ~**19 GB только на 4K контекста** — **не влезает целиком в 12 GB VRAM**; полный GPU-only невозможен, offload даст ~3–8 tok/s — **не «комфорт»**.                                        |
-| **NVFP4**                      | Только Blackwell (RTX 50xx) — **не для 3060**.                                                                                                                                             |
+**Вывод:** для рассуждений, траблшутинга и разработки ставим `unsloth/Qwen3.6-35B-A3B-GGUF` квант **UD-Q4_K_XL** и **mmproj** для vision. Если не хватает VRAM под vision и длинный контекст — запасной квант **UD-Q3_K_XL** или **UD-IQ4_NL_XL**.
 
-
-**Вывод:** для «больших рассуждений + траблшутинг + разработка» на **именно Qwen3.6** ставим `**unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL`** (+ `**mmproj-F16**` для vision). Если не хватает VRAM под vision + длинный контекст — запасной квант `**UD-Q3_K_XL**` или `**UD-IQ4_NL_XL**` (меньше вес, больше места под KV).
-
-Ожидаемый UX (ориентир, не гарантия): **~8–18 tok/s** decode при частичном offload экспертов на CPU; prompt processing быстрее. Thinking-режим «ест» **сотни–тысячи скрытых токенов** до ответа — это нормально, не путать с зависанием.
+Ожидаемый UX (ориентир): **~8–18 tok/s** decode при частичном offload экспертов на CPU. Thinking-режим тратит сотни–тысячи скрытых токенов до ответа. Это нормальная работа, не зависание.
 
 ```mermaid
 flowchart LR
@@ -36,64 +50,161 @@ flowchart LR
   Code --> RAM
 ```
 
+---
 
+## Важно про RAM и два сервера
+
+На **32 GB DDR4** один экземпляр Qwen3.6-35B-A3B (Q4 + KV + runtime) занимает **~23–28 GB RAM+VRAM** в гибриде. Два `llama-server` одновременно почти наверняка уходят в swap.
+
+- По умолчанию работает один сервер. Смена режима = остановить процесс (Ctrl+C) и запустить другой скрипт.
+- Два порта параллельно — только если после одного сервера в диспетчере задач свободно больше 14 GB RAM и второй стартует без swap.
 
 ---
 
-## Важно про RAM и «два сервера»
+## Запуск сервера, если сборка и модель уже на месте
 
-На **32 GB DDR4** один экземпляр Qwen3.6-35B-A3B (Q4 + KV + runtime) занимает **~23–28 GB RAM+VRAM** в гибриде. **Два `llama-server` одновременно** почти наверняка **не влезут** — будет swap и «слайд-шоу».
+`llama-server.exe` уже собран, GGUF уже скачан. Фазы 0–2 повторять не нужно. Откройте новое окно PowerShell и вставьте блок целиком.
 
-**Практичная схема для вашего ПК:**
-
-- **По умолчанию:** один сервер; переключение режима = **остановить процесс** и запустить другой `.ps1` (`--reasoning on` vs `off`).
-- **Два порта параллельно** — только если в Диспетчере задач после одного сервера остаётся **&gt; 14 GB свободной RAM** и второй стартует без swap; иначе не использовать.
-
----
-
-## Фаза 0 — Подготовка системы (Windows), пошагово
-
-### 0.1 Структура каталогов (сделать один раз)
+Перед этим закройте предыдущий зависший запуск (Ctrl+C). Строку `. "$PSScriptRoot\Qwen-Common.ps1"` в консоль не вставлять: в интерактивном окне `$PSScriptRoot` пустой, и PowerShell ищет `\Qwen-Common.ps1`.
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "D:\AI\llama.cpp", "D:\Models\llama", "D:\AI\scripts"
+$LLAMA_ROOT = "G:\localAI\AI\llama.cpp"
+$LLAMA_CACHE = "G:\localAI\Models\llama"
+$CUDA_ROOT = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"
+$CUDA_BIN = Join-Path $CUDA_ROOT "bin\x64"
+if (-not (Test-Path (Join-Path $CUDA_BIN "cudart64_13.dll"))) {
+    $CUDA_BIN = Join-Path $CUDA_ROOT "bin"
+}
+$env:Path = "$CUDA_BIN;" + $env:Path
+
+$SERVER = Join-Path $LLAMA_ROOT "build\bin\Release\llama-server.exe"
+$MODEL_DIR = Join-Path $LLAMA_CACHE "unsloth\Qwen3.6-35B-A3B-GGUF"
+$MODEL_GGUF = (Get-ChildItem $MODEL_DIR -Filter "*UD-Q4_K_XL*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+$MMPROJ = (Get-ChildItem $MODEL_DIR -Filter "*mmproj*.gguf" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+
+foreach ($dll in "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll") {
+    $src = Join-Path $CUDA_BIN $dll
+    if (Test-Path $src) { Copy-Item $src (Join-Path (Split-Path $SERVER) $dll) -Force }
+}
+
+if (-not (Test-Path $SERVER)) { throw "Нет файла: $SERVER" }
+if (-not $MODEL_GGUF) { throw "Нет *UD-Q4_K_XL*.gguf в $MODEL_DIR" }
+if (-not $MMPROJ) { throw "Нет *mmproj*.gguf в $MODEL_DIR" }
+
+Write-Host "SERVER: $SERVER"
+Write-Host "MODEL:  $MODEL_GGUF"
+Write-Host "MMPROJ: $MMPROJ"
+
+& $SERVER `
+  --model $MODEL_GGUF `
+  --mmproj $MMPROJ `
+  --host 127.0.0.1 `
+  --port 8001 `
+  --alias "qwen3.6-35b-a3b-think" `
+  --ctx-size 32768 `
+  --n-gpu-layers 99 `
+  --n-cpu-moe 22 `
+  --cache-ram 8192 `
+  --parallel 1 `
+  --no-mmproj-offload `
+  --reasoning on `
+  --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 `
+  --presence-penalty 0.0 `
+  --chat-template-kwargs '{"preserve_thinking":true}'
 ```
 
-`C:` вместо `D:` — ок, главное **SSD** и **~30 GB** свободно.
+Окно не закрывать. Успех — строка `HTTP server listening` и порт **8001**. Остановка — Ctrl+C.
+
+Режим кода (только после остановки thinking-сервера), порт **8002**:
+
+```powershell
+& $SERVER `
+  --model $MODEL_GGUF `
+  --mmproj $MMPROJ `
+  --host 127.0.0.1 `
+  --port 8002 `
+  --alias "qwen3.6-35b-a3b-instruct" `
+  --ctx-size 32768 `
+  --n-gpu-layers 99 `
+  --n-cpu-moe 22 `
+  --cache-ram 8192 `
+  --parallel 1 `
+  --no-mmproj-offload `
+  --reasoning off `
+  --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 `
+  --presence-penalty 1.5
+```
+
+Второй блок использует `$SERVER`, `$MODEL_GGUF` и `$MMPROJ` из того же окна. Если окно новое, сначала вставьте первый блок до строки `Write-Host`, без запуска `& $SERVER`, либо запускайте готовые скрипты из фазы 3.
+
+Проверка из другого окна PowerShell:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/models"
+```
+
+---
+
+## Фаза 0 — Подготовка системы
+
+Пропускайте шаг, если он уже сделан. Сборка от 28.10.2026 на этой машине уже есть.
+
+### 0.1 Каталоги
+
+```powershell
+New-Item -ItemType Directory -Force -Path `
+  "G:\localAI\AI\llama.cpp", `
+  "G:\localAI\Models\llama", `
+  "G:\localAI\AI\scripts"
+```
+
+Нужен SSD и около **30 GB** свободно под квант Q4 и сборку.
 
 ### 0.2 Драйвер NVIDIA
 
-1. [nvidia.com/drivers](https://www.nvidia.com/drivers) → RTX 3060 → Windows 11/10 → скачать **Game Ready** или **Studio**.
-2. Установка → перезагрузка.
-3. Проверка в **PowerShell**:
+1. [nvidia.com/drivers](https://www.nvidia.com/drivers) → RTX 3060 → Windows 11/10 → Game Ready или Studio.
+2. Установка, перезагрузка.
+3. Проверка:
 
 ```powershell
 nvidia-smi
 ```
 
-Ожидаете: таблица с **RTX 3060**, **12288 MiB**, Driver Version. Если «не recognized» — переустановить драйвер.
+В таблице: **RTX 3060**, **12288 MiB**. Для CUDA Toolkit 13.4 версия драйвера **580 или новее**.
 
-### 0.3 CUDA Toolkit (для сборки, не путать с драйвером)
+### 0.3 CUDA Toolkit 13.4
 
-1. [developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads) → Windows → x86_64 → exe (local).
-2. Версия: **CUDA 12.6** или **12.4** (стабильно с llama.cpp). **Не ставить 13.2** как единственную, если Unsloth предупреждает о gibberish — для runtime inference достаточно драйвера; Toolkit нужен **только для компиляции**.
-3. После установки:
+Toolkit нужен для компиляции. Для запуска готового `llama-server.exe` достаточно драйвера и трёх DLL из каталога toolkit (`cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll`).
+
+1. [developer.nvidia.com/cuda-downloads](https://developer.nvidia.com/cuda-downloads) → Windows → x86_64 → exe (local) → **CUDA 13.4**.
+2. В составе установки отметить **Visual Studio Integration**.
+3. После установки открыть **новое** окно PowerShell и записать пути. Текущее окно, открытое до установки, эти переменные само не увидит.
 
 ```powershell
-nvcc --version
+$cuda = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"
+$env:CudaToolkitDir = $cuda
+$env:CUDA_PATH = $cuda
+$env:CUDA_PATH_V13_4 = $cuda
+$cudaBin = Join-Path $cuda "bin\x64"
+if (-not (Test-Path (Join-Path $cudaBin "nvcc.exe"))) { $cudaBin = Join-Path $cuda "bin" }
+$env:Path = "$cudaBin;" + $env:Path
+
+[Environment]::SetEnvironmentVariable("CudaToolkitDir", $cuda, "User")
+[Environment]::SetEnvironmentVariable("CUDA_PATH", $cuda, "User")
+[Environment]::SetEnvironmentVariable("CUDA_PATH_V13_4", $cuda, "User")
+
+& "$cuda\bin\nvcc.exe" --version
+Get-ChildItem $cudaBin -Filter "cudart64_13.dll"
+Get-ChildItem "C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Microsoft\VC\v180\BuildCustomizations\CUDA 13.4.props"
 ```
 
-Должна показаться версия 12.x. Если команда не найдена — добавить в PATH (типично):  
-`C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6\bin`
+`nvcc` печатает **13.4**. Рядом лежит `cudart64_13.dll`. В каталоге Visual Studio есть `CUDA 13.4.props`. У CUDA 13.4 рабочие DLL часто лежат в `bin\x64`, а не в `bin`.
 
-### 0.4 Visual Studio 2022 (компилятор C++)
+### 0.4 Компилятор
 
-1. Скачать **Visual Studio 2022 Community** (бесплатно).
-2. В установщике отметить workload: **«Разработка классических приложений на C++»** / *Desktop development with C++*.
-3. Справа в компонентах убедиться: **MSVC v143**, **Windows 10/11 SDK**, **C++ CMake tools for Windows**.
-4. (Опционально) **Ninja** — через VS Installer → Individual components → Ninja.
+На этой машине уже стоит **Visual Studio Community 18 2026**, workload «Разработка классических приложений на C++» (MSVC, Windows SDK, C++ CMake tools). Отдельно ставить Visual Studio 2022 не нужно.
 
-Сборку llama.cpp удобнее запускать из **«x64 Native Tools Command Prompt for VS 2022»** (Пуск → Visual Studio 2022) — там уже настроены `cl.exe` и окружение.
+CMake без явного генератора выбирает самую новую Visual Studio. С CUDA 12.6 это даёт ошибку `No CUDA Toolkit integration found in Visual Studio` и пустую папку `v180\BuildCustomizations`. С CUDA 13.4 и переменными из шага 0.3 генератор Visual Studio 18 подходит.
 
 ### 0.5 Git и Python
 
@@ -102,30 +213,28 @@ winget install --id Git.Git -e
 winget install --id Python.Python.3.12 -e
 ```
 
-Закрыть и открыть PowerShell, затем:
+Новое окно PowerShell:
 
 ```powershell
 python --version
 git --version
 ```
 
-### 0.6 Файл подкачки (обязательно)
+### 0.6 Файл подкачки
 
-1. **Win + R** → `sysdm.cpl` → вкладка **Дополнительно** → **Быстродействие** → **Параметры** → **Дополнительно** → **Виртуальная память** → **Изменить**.
-2. Снять «Автоматически» → выбрать **SSD-диск** (тот же, где модели).
-3. **Указать размер:** начальный **49152**, максимальный **65536** (MB) → **Задать** → OK → перезагрузка.
-
-Проверка после reboot:
+1. **Win + R** → `sysdm.cpl` → **Дополнительно** → **Быстродействие** → **Параметры** → **Дополнительно** → **Виртуальная память** → **Изменить**.
+2. Снять «Автоматически», выбрать SSD, где лежат модели.
+3. Начальный размер **49152**, максимальный **65536** (МБ) → **Задать** → OK → перезагрузка.
 
 ```powershell
-Get-CimInstance Win32_PageFileUsage | Select Name, AllocatedBaseSize, CurrentUsage
+Get-CimInstance Win32_PageFileUsage | Select-Object Name, AllocatedBaseSize, CurrentUsage
 ```
 
-### 0.7 Базовая «гигиена» перед inference
+### 0.7 Перед inference
 
-- Закрыть Chrome/Edge с тяжёлыми вкладками, игры, OBS NVENC.
-- **Диспетчер задач** → Производительность → Память: целиться в **≥ 20 GB свободно** перед стартом сервера.
-- Для мониторинга VRAM в отдельном окне:
+- Закрыть тяжёлые вкладки браузера, игры, OBS NVENC.
+- В диспетчере задач перед стартом сервера свободно **от 20 GB** RAM.
+- Отдельное окно для VRAM:
 
 ```powershell
 nvidia-smi -l 2
@@ -133,168 +242,218 @@ nvidia-smi -l 2
 
 ---
 
-## Фаза 1 — Сборка llama.cpp (CUDA, Release), пошагово
+## Фаза 1 — Сборка llama.cpp
 
-### 1.1 Клонирование
+Повторять только если каталога `G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe` нет. Готовый бинарник не удалять.
 
-В **x64 Native Tools Command Prompt for VS 2022**:
+### 1.1 Исходники
 
-```cmd
-cd /d D:\AI
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
+```powershell
+cd G:\localAI\AI
+if (-not (Test-Path .\llama.cpp\.git)) {
+    git clone https://github.com/ggml-org/llama.cpp
+}
+cd .\llama.cpp
 git pull
 ```
 
-Если нужна стабильность — можно `git checkout master` после pull (Qwen3.6 / MoE / `--reasoning` только в свежих коммитах).
+Qwen3.6, MoE и `--reasoning` есть в свежем `master`. На уже собранном дереве `0.7.0-dev` обновление не обязательно.
 
-### 1.2 CMake: архитектура под RTX 3060 (Ampere sm_86)
+### 1.2 CMake под RTX 3060 (Ampere, sm_86)
 
-RTX 3060 = **compute capability 8.6**. Явно задать, чтобы не собирать лишнее:
+В том же окне, где выставлены переменные CUDA из шага 0.3. Старый каталог `build` удаляется: в нём остаётся кэш от CUDA 12.6, и CMake пишет `CUDA Toolkit found`, а MSBuild всё равно собирает пустой `CudaToolkitDir`.
 
-```cmd
-cmake -B build ^
-  -DBUILD_SHARED_LIBS=OFF ^
-  -DGGML_CUDA=ON ^
-  -DCMAKE_BUILD_TYPE=Release ^
-  -DCMAKE_CUDA_ARCHITECTURES=86
+```powershell
+cd G:\localAI\AI\llama.cpp
+if (Test-Path .\build) { Remove-Item -Recurse -Force .\build }
+
+$cuda = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"
+$env:CudaToolkitDir = $cuda
+$env:CUDA_PATH = $cuda
+$env:CUDA_PATH_V13_4 = $cuda
+
+cmake -B build --fresh `
+  -T "cuda=$cuda" `
+  -DBUILD_SHARED_LIBS=OFF `
+  -DGGML_CUDA=ON `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DCMAKE_CUDA_ARCHITECTURES=86 `
+  -DCUDAToolkit_ROOT="$cuda"
 ```
 
-Если CMake не видит CUDA:
+Успех конфигурации:
 
-```cmd
-set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
-cmake -B build ... (те же флаги)
-```
+- `The CUDA compiler identification is NVIDIA 13.4`
+- путь include содержит `\CUDA\v13.4`
 
-### 1.3 Сборка бинарников
+Предупреждения `ccache not found` и `CMP0194` сборке не мешают. Генератор Visual Studio многоконфигурационный: тип сборки задаётся флагом `--config Release` на следующем шаге.
 
-```cmd
-cmake --build build --config Release -j %NUMBER_OF_PROCESSORS% ^
+Если снова `The CUDA Toolkit directory '' does not exist`, в этом окне пустые `CudaToolkitDir` и `CUDA_PATH_V13_4`. Повторите присваивания `$env:...` из блока выше и снова удалите `build`.
+
+### 1.3 Сборка
+
+```powershell
+cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS `
   --target llama-server llama-cli llama-mtmd-cli
 ```
 
-Первая сборка **10–30 мин**. Успех: файлы существуют:
-
-```cmd
-dir build\bin\Release\llama-server.exe
-```
-
-### 1.4 Проверка CUDA в бинарнике
-
-```cmd
-build\bin\Release\llama-server.exe --version
-```
-
-В выводе должны быть упоминания **CUDA** / GPU backend. Запуск без аргументов не должен падать с «DLL not found» — если падает, установить [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
-
-### 1.5 Альтернатива, если сборка ломается
-
-- Скачать **pre-release** с [Releases llama.cpp](https://github.com/ggerganov/llama.cpp/releases) (бинарники `llama-bXXXX-cuda-...-win.zip`) — положить рядом с `D:\AI\scripts` и в скриптах заменить путь на `llama-server.exe` из zip.
-- Или сборка через **WSL2 + CUDA** — дольше по настройке; на чистом Windows обычно хватает Native Tools.
-
-### 1.6 PATH (опционально)
+Первая сборка занимает десятки минут. Проверка:
 
 ```powershell
-[Environment]::SetEnvironmentVariable(
-  "Path",
-  $env:Path + ";D:\AI\llama.cpp\build\bin\Release",
-  "User"
-)
+Get-Item .\build\bin\Release\llama-server.exe
 ```
+
+Ожидаемый размер — десятки мегабайт (у статической сборки около 66 MB).
+
+### 1.4 CUDA DLL и проверка бинарника
+
+`--version` без текста и без возврата приглашения означает, что загрузчик Windows ждёт DLL. У CUDA 13.4 они лежат в `bin\x64`. Диалог «не найден DLL» на панели задач нужно закрыть, затем:
+
+```powershell
+$cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"
+if (-not (Test-Path "$cudaBin\cudart64_13.dll")) {
+    $cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"
+}
+$env:Path = "$cudaBin;" + $env:Path
+Copy-Item "$cudaBin\cudart64_13.dll", "$cudaBin\cublas64_13.dll", "$cudaBin\cublasLt64_13.dll" `
+  .\build\bin\Release\ -Force
+
+.\build\bin\Release\llama-server.exe --version
+.\build\bin\Release\llama-server.exe --list-devices
+```
+
+В `--version` есть упоминание CUDA. В `--list-devices` есть `CUDA0: NVIDIA GeForce RTX 3060` и объём около **12288 MiB**. Если диалог просит другую DLL из того же каталога, скопируйте и её в `build\bin\Release`.
+
+Сообщение про `VCRUNTIME` / `MSVCP` закрывается установкой [VC++ Redistributable x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+
+### 1.5 Готовые бинарники, если свою сборку повторять не нужно
+
+На [Releases llama.cpp](https://github.com/ggml-org/llama.cpp/releases) для RTX 3060 и драйвера 580+ берётся пара:
+
+- `llama-bXXXX-bin-win-cuda-13.4-x64.zip` (номер билда — последний);
+- `cudart-llama-bin-win-cuda-13.4-x64.zip`.
+
+Оба архива распаковать в один каталог, чтобы `cudart64_13.dll`, `cublas64_13.dll` и `cublasLt64_13.dll` лежали рядом с `llama-server.exe`. В скриптах заменить путь к серверу на этот файл.
+
+### 1.6 PATH пользователя
+
+Делать после того, как `--list-devices` показал RTX 3060. Строка дописывается один раз; повторный запуск продублирует путь.
+
+```powershell
+$bin = "G:\localAI\AI\llama.cpp\build\bin\Release"
+$cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($userPath -notlike "*$bin*") {
+    [Environment]::SetEnvironmentVariable("Path", "$userPath;$cudaBin;$bin", "User")
+}
+```
+
+Новое окно PowerShell подхватит PATH. Уже открытое — нет.
 
 ---
 
-## Фаза 2 — Загрузка модели и vision, пошагово
+## Фаза 2 — Загрузка модели и vision
 
-### 2.1 Python-инструменты Hugging Face
+### 2.1 Пакеты и вход в Hugging Face
+
+Команды `huggingface-cli` в текущем `huggingface_hub` нет. PowerShell отвечает `CommandNotFoundException`. Вход и скачивание идут через Python, ему не нужен каталог `Scripts` в PATH.
 
 ```powershell
 python -m pip install -U pip
 python -m pip install -U "huggingface_hub[cli]" hf-transfer
 $env:HF_HUB_ENABLE_HF_TRANSFER = "1"
-```
-
-Если репозиторий gated или rate limit — один раз:
-
-```powershell
-huggingface-cli login
-```
-
-(Vставить token с [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens), read достаточно.)
-
-### 2.2 Постоянные переменные окружения (рекомендуется)
-
-```powershell
-[Environment]::SetEnvironmentVariable("LLAMA_CACHE", "D:\Models\llama", "User")
 [Environment]::SetEnvironmentVariable("HF_HUB_ENABLE_HF_TRANSFER", "1", "User")
+[Environment]::SetEnvironmentVariable("LLAMA_CACHE", "G:\localAI\Models\llama", "User")
+$env:LLAMA_CACHE = "G:\localAI\Models\llama"
 ```
 
-Новое окно PowerShell → `$env:LLAMA_CACHE` должно показать путь.
-
-### 2.3 Скачивание весов + mmproj
+Репозиторий `unsloth/Qwen3.6-35B-A3B-GGUF` публичный. Вход нужен, чтобы большое скачивание не упёрлось в лимит анонимных запросов. Токен с правом **read**: [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens). В меню выбрать браузер или вставку токена.
 
 ```powershell
-$dest = "$env:LLAMA_CACHE\unsloth\Qwen3.6-35B-A3B-GGUF"
+python -c "from huggingface_hub import login; login()"
+python -c "from huggingface_hub import whoami; print(whoami()['name'])"
+```
+
+Второе печатает имя пользователя. Если в новом окне команда `hf version` находится, дальше можно вызывать `hf auth login` и `hf download`. Пока `hf` не находится, оставайтесь на `python -c` и `python -m`.
+
+### 2.2 Скачивание весов и mmproj
+
+```powershell
+$dest = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+$env:HF_HUB_ENABLE_HF_TRANSFER = "1"
+python -c @"
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.6-35B-A3B-GGUF',
+    local_dir=r'$dest',
+    allow_patterns=['*UD-Q4_K_XL*', '*mmproj*'],
+)
+"@
+```
+
+Объём около **18–22 GB**. Прерванное скачивание продолжается повторным запуском того же блока.
+
+Если `hf` есть в PATH, эквивалент:
+
+```powershell
 hf download unsloth/Qwen3.6-35B-A3B-GGUF `
   --local-dir $dest `
   --include "*UD-Q4_K_XL*" `
   --include "*mmproj*"
 ```
 
-Скачивание **~18–22 GB**, время зависит от канала. Можно прервать и повторить — докачка resume.
-
-### 2.4 Проверка, что файлы на месте
+### 2.3 Проверка файлов
 
 ```powershell
-Get-ChildItem $dest -Recurse -Include *.gguf | Select-Object Name, @{N='GB';E={[math]::Round($_.Length/1GB,2)}}
+Get-ChildItem "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF" -Recurse -Filter *.gguf |
+  Select-Object Name, @{N='GB';E={[math]::Round($_.Length/1GB,2)}}
 ```
 
 Минимум:
 
-- один файл вида `*UD-Q4_K_XL*.gguf` (**~16–20 GB** на диске);
-- `*mmproj*.gguf` (**~0.9 GB**).
+- один `*UD-Q4_K_XL*.gguf` (**~16–20 GB**);
+- один `*mmproj*.gguf` (**~0.9 GB**).
 
-Запомните **полные пути** — при ручном запуске без `-hf` они понадобятся.
-
-### 2.4.1 Если OOM уже на этапе планирования
-
-Параллельно скачать запасной квант (не удаляя Q4):
+Запасной квант, если Q4 не влезает по VRAM. Q4 при этом не удалять.
 
 ```powershell
-hf download unsloth/Qwen3.6-35B-A3B-GGUF --local-dir $dest --include "*UD-Q3_K_XL*"
+python -c @"
+from huggingface_hub import snapshot_download
+snapshot_download(
+    repo_id='unsloth/Qwen3.6-35B-A3B-GGUF',
+    local_dir=r'$dest',
+    allow_patterns=['*UD-Q3_K_XL*'],
+)
+"@
 ```
-
-### 2.5 Как работает `-hf` у llama-server
-
-Флаг `-hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL` заставляет сервер **найти или скачать** нужный файл в кэш (`LLAMA_CACHE` или `%USERPROFILE%\.cache\llama.cpp`). После фазы 2.3 локальная копия уже есть — старт будет быстрее.
 
 ---
 
+## Фаза 3 — Конфиг под 12 GB и скрипты запуска
 
-## Фаза 3 — Конфиг под 12 GB + vision, пошагово
-
-Ключевая идея (как в [разборе MoE + llama.cpp](https://dzx.fr/blog/local-ai-coding/)): **все постоянно активные слои на GPU**, **часть MoE-экспертов на CPU** (`n-cpu-moe`), **KV при нехватке VRAM — в RAM** (`cache-ram`, `kv-unified`), **mmproj не грузить на GPU** если тесно (`no-mmproj-offload`).
-
-### 3.0 Что делают ключевые параметры
+Идея: постоянно активные слои на GPU, часть MoE-экспертов на CPU (`n-cpu-moe`), KV при нехватке VRAM в RAM (`cache-ram`), vision-проектор не на GPU (`no-mmproj-offload`).
 
 | Параметр | Зачем |
-| -------- | ----- |
-| `n-gpu-layers 99` | «Все слои на GPU, сколько влезет»; для MoE часть экспертов уйдёт на CPU через `n-cpu-moe`. |
-| `n-cpu-moe N` | **N** слоёв MoE держать экспертов в **RAM/CPU**; меньше VRAM, больше нагрузка на i7-14700KF. |
-| `cache-ram 8192` | До **8 GB** KV-кэша в **оперативке**, если не влезает в VRAM. |
-| `kv-unified true` | Единый пул KV — проще на одном пользователе (`parallel 1`). |
-| `no-mmap true` | На Windows часто стабильнее для больших GGUF. |
-| `no-mmproj-offload true` | Vision-проектор **не на GPU** — экономия VRAM, картинки чуть медленнее. |
-| `ctx-size 32768` | Окно контекста; больше = больше RAM и медленнее decode. |
-| `parallel 1` | Один inference-запрос одновременно — **обязательно** на 32 GB при 35B. |
-| `--reasoning on/off` | Hybrid thinking **на старте сервера**; смена режима = перезапуск процесса. |
+| --- | --- |
+| `n-gpu-layers 99` | Отдать на GPU столько слоёв, сколько влезет. Часть экспертов MoE уйдёт на CPU через `n-cpu-moe`. |
+| `n-cpu-moe 22` | Столько слоёв MoE держать в RAM. Меньше VRAM, выше нагрузка на i7-14700KF. |
+| `cache-ram 8192` | До 8 GB KV-кэша в оперативке. |
+| `kv-unified true` | Единый пул KV при `parallel 1`. |
+| `no-mmap true` | На Windows стабильнее для больших GGUF. |
+| `no-mmproj-offload` | Vision-проектор в RAM. Картинки чуть медленнее, VRAM свободнее. |
+| `ctx-size 32768` | Окно контекста. Дальше растёт RAM и падает скорость decode. |
+| `parallel 1` | Один запрос одновременно. На 32 GB при 35B иначе. |
+| `--reasoning on/off` | Задаётся при старте процесса. Смена режима = новый запуск. |
 
-### 3.1 Файл `models.ini`
+### 3.1 `models.ini`
 
-Путь (Windows): `%USERPROFILE%\.config\llama.cpp\models.ini`
+Файл нужен, когда сервер сам находит модель по флагу `-hf`. Запуск из раздела «Запуск сервера» и скрипты ниже передают путь к GGUF явно, поэтому сервер стартует и без этого файла. Записать его всё равно стоит: один раз, без Блокнота.
 
-```ini
+```powershell
+$configDir = Join-Path $env:USERPROFILE ".config\llama.cpp"
+New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+@'
 [*]
 cache-ram = 8192
 kv-unified = true
@@ -311,57 +470,56 @@ n-cpu-moe = 22
 no-mmproj-offload = true
 ubatch-size = 512
 parallel = 1
+'@ | Set-Content -Path (Join-Path $configDir "models.ini") -Encoding utf8
 ```
 
-Создание файла в PowerShell:
+### 3.2 Три скрипта одной вставкой
+
+Блок ниже **создаёт файлы**. Его вставляют в PowerShell один раз. Строки внутри одинарных кавычек в консоль по отдельности не копируют.
+
+`$PSScriptRoot` в готовых `Start-Qwen-*.ps1` срабатывает только когда PowerShell запускает сам файл. В интерактивной строке эта переменная пустая.
 
 ```powershell
-$configDir = "$env:USERPROFILE\.config\llama.cpp"
-New-Item -ItemType Directory -Force -Path $configDir
-notepad "$configDir\models.ini"
-```
+$SCRIPTS = "G:\localAI\AI\scripts"
+New-Item -ItemType Directory -Force -Path $SCRIPTS | Out-Null
 
-### 3.2 Файл `D:\AI\scripts\Qwen-Common.ps1`
+@'
+$cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"
+if (-not (Test-Path (Join-Path $cudaBin "cudart64_13.dll"))) {
+    $cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"
+}
+$env:Path = "$cudaBin;" + $env:Path
+$env:LLAMA_CACHE = "G:\localAI\Models\llama"
 
-```powershell
-$LLAMA_ROOT = "D:\AI\llama.cpp"
-$script:SERVER = "$LLAMA_ROOT\build\bin\Release\llama-server.exe"
-$env:LLAMA_CACHE = "D:\Models\llama"
-
-$MODEL_DIR  = "$env:LLAMA_CACHE\unsloth\Qwen3.6-35B-A3B-GGUF"
+$script:SERVER = "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe"
+$MODEL_DIR = Join-Path $env:LLAMA_CACHE "unsloth\Qwen3.6-35B-A3B-GGUF"
 $MODEL_GGUF = (Get-ChildItem $MODEL_DIR -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName
-$MMPROJ     = (Get-ChildItem $MODEL_DIR -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName
+$MMPROJ = (Get-ChildItem $MODEL_DIR -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName
 
+if (-not (Test-Path $script:SERVER)) { throw "llama-server.exe not found: $script:SERVER" }
 if (-not $MODEL_GGUF) { throw "GGUF not found in $MODEL_DIR" }
-if (-not $MMPROJ)     { throw "mmproj not found in $MODEL_DIR" }
+if (-not $MMPROJ) { throw "mmproj not found in $MODEL_DIR" }
+
+$outDir = Split-Path $script:SERVER
+foreach ($dll in "cudart64_13.dll", "cublas64_13.dll", "cublasLt64_13.dll") {
+    $src = Join-Path $cudaBin $dll
+    if (Test-Path $src) { Copy-Item $src (Join-Path $outDir $dll) -Force }
+}
 
 $script:COMMON = @(
-  "--model", $MODEL_GGUF,
-  "--mmproj", $MMPROJ,
-  "--host", "127.0.0.1",
-  "--ctx-size", "32768",
-  "--n-gpu-layers", "99",
-  "--n-cpu-moe", "22",
-  "--cache-ram", "8192",
-  "--parallel", "1",
-  "--no-mmproj-offload"
+    "--model", $MODEL_GGUF,
+    "--mmproj", $MMPROJ,
+    "--host", "127.0.0.1",
+    "--ctx-size", "32768",
+    "--n-gpu-layers", "99",
+    "--n-cpu-moe", "22",
+    "--cache-ram", "8192",
+    "--parallel", "1",
+    "--no-mmproj-offload"
 )
-```
+'@ | Set-Content -Path (Join-Path $SCRIPTS "Qwen-Common.ps1") -Encoding utf8
 
-### 3.3 Два режима = два скрипта (один процесс за раз на 32 GB)
-
-Современный llama.cpp: **`--reasoning on/off`** только при старте. **Не держите оба сервера параллельно** на 32 GB RAM — см. раздел «Важно про RAM».
-
-
-| Профиль       | Порт | Флаг              | Задачи                                        |
-| ------------- | ---- | ----------------- | --------------------------------------------- |
-| **DeepThink** | 8001 | `--reasoning on`  | траблшутинг, архитектура, длинные рассуждения |
-| **DevFast**   | 8002 | `--reasoning off` | код, рефакторинг, быстрые итерации            |
-
-
-**Start-Qwen-Think.ps1** — sampling по [Unsloth Qwen3.6](https://unsloth.ai/docs/models/qwen3.6):
-
-```powershell
+@'
 . "$PSScriptRoot\Qwen-Common.ps1"
 & $SERVER @COMMON `
   --port 8001 `
@@ -369,14 +527,10 @@ $script:COMMON = @(
   --reasoning on `
   --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 `
   --presence-penalty 0.0 `
-  --chat-template-kwargs '{\"preserve_thinking\":true}'
-```
+  --chat-template-kwargs '{"preserve_thinking":true}'
+'@ | Set-Content -Path (Join-Path $SCRIPTS "Start-Qwen-Think.ps1") -Encoding utf8
 
-Для **точного кода / WebDev** в thinking: `--temp 0.6` (остальное как выше).
-
-**Start-Qwen-Code.ps1:**
-
-```powershell
+@'
 . "$PSScriptRoot\Qwen-Common.ps1"
 & $SERVER @COMMON `
   --port 8002 `
@@ -384,54 +538,70 @@ $script:COMMON = @(
   --reasoning off `
   --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 `
   --presence-penalty 1.5
+'@ | Set-Content -Path (Join-Path $SCRIPTS "Start-Qwen-Code.ps1") -Encoding utf8
+
+Get-ChildItem $SCRIPTS
 ```
+
+В каталоге должны появиться `Qwen-Common.ps1`, `Start-Qwen-Think.ps1`, `Start-Qwen-Code.ps1`.
+
+Для точного кода в thinking-режиме в `Start-Qwen-Think.ps1` заменить `--temp 1.0` на `--temp 0.6`. При бессвязном тексте в `Qwen-Common.ps1` в массив `$script:COMMON` добавить `"--cache-type-k", "bf16", "--cache-type-v", "bf16"`.
+
+### 3.3 Запуск скрипта
+
+Один процесс за раз.
+
+| Профиль | Файл | Порт | Флаг | Задачи |
+| --- | --- | --- | --- | --- |
+| DeepThink | `Start-Qwen-Think.ps1` | 8001 | `--reasoning on` | траблшутинг, архитектура, длинные рассуждения |
+| DevFast | `Start-Qwen-Code.ps1` | 8002 | `--reasoning off` | код, рефакторинг, короткие итерации |
+
+Sampling по [Unsloth Qwen3.6](https://unsloth.ai/docs/models/qwen3.6).
 
 ```powershell
 Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-D:\AI\scripts\Start-Qwen-Code.ps1
+& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"
 ```
 
-Окно не закрывать; **Ctrl+C** — остановка. Альтернатива: `-hf unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_XL` + явные `--n-cpu-moe`, `--ctx-size`, `--mmproj`.
-
-При gibberish добавьте в `@COMMON`: `--cache-type-k bf16 --cache-type-v bf16`.
+Окно не закрывать. Ctrl+C останавливает сервер. Для кода — тот же приём с `Start-Qwen-Code.ps1` после остановки первого.
 
 ### 3.4 Первый запуск и тюнинг
 
-1. Запустить скрипт → в консоли **HTTP server listening**.
-2. `nvidia-smi`: VRAM **10–11.5 GB** — норма; **CUDA OOM** → ↑ `n-cpu-moe` (22→26→30) или Q3.
-3. VRAM &lt; 9 GB и CPU 100% → ↓ `n-cpu-moe` на 2–4.
+1. В консоли есть `HTTP server listening`.
+2. `nvidia-smi`: VRAM **10–11.5 GB** — нормальная посадка. `CUDA out of memory` — поднять `n-cpu-moe` (22 → 26 → 30) или перейти на Q3.
+3. VRAM ниже 9 GB и CPU занят полностью — уменьшить `n-cpu-moe` на 2–4.
 
-### 3.5 Контекст и лимиты генерации
+### 3.5 Контекст и длина ответа
 
-- [ ] `**ctx-size**`: старт **32768**; если стабильно по RAM — **65536** (рост KV; на 12 GB часть уйдёт в `cache-ram`).
-- [ ] `**max_tokens` / `-n` в клиенте**: для thinking — **8192–32768** на ответ (Unsloth: «adequate output ~32768» для сложных запросов).
-- [ ] **Preserve thinking**: `preserve_thinking: true` улучшает многоходовые диалоги, но **раздувает контекст** — для длинных сессий периодически **сжимать историю** или новый чат.
-- [ ] **Vision**: в API/OpenAI-compatible — multimodal content (image_url / base64); локально проверить через `llama-mtmd-cli` с тем же `--mmproj`.
+- `ctx-size`: старт **32768**. При стабильной RAM можно **65536**: KV частично уйдёт в `cache-ram`.
+- `max_tokens` в клиенте для thinking: **8192–32768**. Unsloth для сложных запросов ориентирует на выход около 32768.
+- `preserve_thinking: true` помогает многоходовому диалогу и раздувает контекст. На длинной сессии историю стоит сжимать или начинать новый чат.
+- Vision в HTTP API — multimodal `content` (`image_url` / base64). Локально тот же `--mmproj` проверяется через `llama-mtmd-cli`.
 
 ### 3.6 Профили задач
 
-
-| Сценарий                     | Сервер                 | Промпт-диета                                                                         |
-| ---------------------------- | ---------------------- | ------------------------------------------------------------------------------------ |
-| RCA / логи / «почему падает» | 8001 thinking          | Вложить стек-трейс, версии, шаги воспроизведения; попросить гипотезы → проверки      |
-| Code review / фича           | 8002 instruct          | Конкретные файлы, ограничения; thinking off = быстрее                                |
-| Агент с tool calls           | 8002 или 8001          | `parallel_tool_calls` осторожно — иногда ломает мелкие модели; для 35B-A3B обычно ок |
-| Скрин UI / диаграмма         | 8001 или 8002 + mmproj | Уменьшить разрешение картинки до ~1024px стороны                                     |
-
+| Сценарий | Сервер | Промпт |
+| --- | --- | --- |
+| RCA, логи, «почему падает» | 8001 thinking | стек-трейс, версии, шаги воспроизведения; сначала гипотезы, потом проверки |
+| Code review, фича | 8002 instruct | конкретные файлы и ограничения |
+| Агент с tool calls | 8002 или 8001 | для 35B-A3B обычно работает; на мелких моделях `parallel_tool_calls` иногда ломает вызов |
+| Скрин UI, диаграмма | любой + mmproj | сторона картинки около 1024 px |
 
 ---
 
-## Фаза 4 — Проверка работоспособности, пошагово
+## Фаза 4 — Проверка
 
-### 4.1 Сервер отвечает
+Сервер thinking должен уже слушать порт 8001. Проверки — во **втором** окне PowerShell.
+
+### 4.1 Список моделей
 
 ```powershell
 Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/models"
 ```
 
-В JSON — `"id"` = ваш `--alias`.
+В JSON поле `id` равно `--alias`: `qwen3.6-35b-a3b-think`.
 
-### 4.2 Тест thinking (Invoke-RestMethod)
+### 4.2 Thinking
 
 ```powershell
 $body = @{
@@ -444,41 +614,48 @@ Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/chat/completions" `
   -Method Post -ContentType "application/json; charset=utf-8" -Body $body
 ```
 
-Успех: **391** и/или `reasoning_content`. Пустой ответ — ↑ `max_tokens`.
+Успех: **391** и/или `reasoning_content`. Пустой ответ — поднять `max_tokens`.
 
-### 4.3 Code на :8002
+### 4.3 Code на порту 8002
 
-Start-Qwen-Code.ps1, тот же запрос с `model = "qwen3.6-35b-a3b-instruct"`.
+Остановить процесс на 8001. Запустить `G:\localAI\AI\scripts\Start-Qwen-Code.ps1`. Тот же запрос с `model = "qwen3.6-35b-a3b-instruct"` и URL `http://127.0.0.1:8002/v1/chat/completions`.
 
 ### 4.4 Vision: llama-mtmd-cli
 
 ```powershell
-$CLI = "D:\AI\llama.cpp\build\bin\Release\llama-mtmd-cli.exe"
-$dir = "D:\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
-& $CLI --model (Get-ChildItem $dir -Filter "*UD-Q4_K_XL*.gguf").FullName `
-  --mmproj (Get-ChildItem $dir -Filter "*mmproj*.gguf").FullName `
-  --image "D:\path\screenshot.png" -p "Опиши UI." --n-gpu-layers 99 --n-cpu-moe 22 -n 512
+$cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"
+$env:Path = "$cudaBin;" + $env:Path
+$CLI = "G:\localAI\AI\llama.cpp\build\bin\Release\llama-mtmd-cli.exe"
+$dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
+& $CLI `
+  --model (Get-ChildItem $dir -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName `
+  --mmproj (Get-ChildItem $dir -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName `
+  --image "G:\localAI\screenshot.png" `
+  -p "Опиши UI." `
+  --n-gpu-layers 99 --n-cpu-moe 22 -n 512
 ```
 
-### 4.5 Vision: HTTP + base64
+`G:\localAI\screenshot.png` заменить на реальный файл.
 
-Сформировать `data:image/png;base64,...` (см. `[Convert]::ToBase64String([IO.File]::ReadAllBytes(...))`) в `image_url` внутри `content` массива сообщения.
+### 4.5 Vision по HTTP
 
-### 4.6 Stress
+Собрать `data:image/png;base64,...` через `[Convert]::ToBase64String([IO.File]::ReadAllBytes("путь"))` и положить в `image_url` внутри массива `content`.
 
-~12 KB лога + thinking; при swap — ↓ `ctx-size` или без `preserve_thinking`.
+### 4.6 Нагрузка
+
+Запрос с ~12 KB лога и thinking. Если начался swap — уменьшить `ctx-size` или убрать `preserve_thinking`.
 
 ---
 
-## Фаза 5 — Cursor, пошагово
+## Фаза 5 — Cursor
 
-1. **Start-Qwen-Code.ps1** → порт **8002**.
+1. Запущен `Start-Qwen-Code.ps1`, порт **8002**.
 2. Cursor **Settings** (Ctrl+,) → **Models**.
 3. API Key: `sk-local`.
-4. **Override OpenAI Base URL:** `http://127.0.0.1:8002/v1`.
+4. Override OpenAI Base URL: `http://127.0.0.1:8002/v1`.
 5. Custom model: `qwen3.6-35b-a3b-instruct` (как в `/v1/models`).
-6. Тест в Chat. Ошибка сети → Firewall для `llama-server.exe`.
-7. DeepThink: перезапуск **Think** на **8001**, URL `http://127.0.0.1:8001/v1`, модель `qwen3.6-35b-a3b-think`.
+6. Проверка в Chat. Сетевая ошибка — разрешить `llama-server.exe` в брандмауэре.
+7. DeepThink: остановить Code, запустить Think на **8001**, URL `http://127.0.0.1:8001/v1`, модель `qwen3.6-35b-a3b-think`.
 
 ```python
 # pip install openai
@@ -497,38 +674,44 @@ print(r.choices[0].message.content)
 
 ## Фаза 6 — Траблшутинг
 
-| Симптом | Проверка | Действие |
-| ------- | -------- | -------- |
-| OOM CUDA | лог, `nvidia-smi` | ↑ `n-cpu-moe`, Q3, `parallel 1` |
-| OOM RAM | Task Manager | ↓ `ctx-size`, один сервер |
-| Gibberish | короткий prompt | ctx 32768, bf16 KV, свежий llama.cpp |
-| Медленно | CPU 100% | ↓ `n-cpu-moe`, Code reasoning off |
-| Порт занят | `netstat -ano \| findstr 8001` | другой порт / kill PID |
-| model not found | `/v1/models` | alias = имя в Cursor |
-| Vision | mtmd-cli | mmproj, `no-mmproj-offload` |
+| Симптом | Что сделать |
+| --- | --- |
+| `No CUDA Toolkit integration found in Visual Studio`, папка `v180\BuildCustomizations` без `CUDA *.props` | Стоит Visual Studio 2026, а Toolkit — 12.6. Поставить CUDA **13.4** с Visual Studio Integration. Копировать props от 12.6 в `v180` бесполезно: `nvcc` 12.6 не принимает MSVC 19.51. |
+| `The CUDA Toolkit directory '' does not exist` в `CUDA 13.4.targets` | В этом окне задать `CudaToolkitDir`, `CUDA_PATH` и `CUDA_PATH_V13_4` на `...\CUDA\v13.4`. Удалить `build`. Повторить cmake с `-T "cuda=..."`. |
+| CMake пишет `CUDA Toolkit found`, затем падает на CUDA | В `build` остался кэш прошлой попытки. Удалить `build` и конфигурировать с `--fresh`. |
+| `llama-server.exe --version` молчит | Закрыть диалог отсутствующей DLL. Добавить в PATH `CUDA\v13.4\bin\x64` и скопировать `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` в `build\bin\Release`. |
+| `huggingface-cli` / `hf` не распознано | `python -c "from huggingface_hub import login; login()"`. Скачивание — `snapshot_download` из фазы 2.2. |
+| `Имя "\Qwen-Common.ps1" не распознано` | В консоль попала строка с `$PSScriptRoot`. Запускать файл: `& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"`, либо блок из раздела «Запуск сервера». |
+| Сервер ищется в `D:\AI\...` | Старый пример пути. На этой машине корень — `G:\localAI\AI\llama.cpp`. |
+| CUDA OOM | Поднять `n-cpu-moe`, квант Q3, `parallel 1`. |
+| RAM OOM, swap | Уменьшить `ctx-size`. Держать один сервер. |
+| Бессвязный текст | `ctx-size 32768`, KV `bf16`, свежий llama.cpp. |
+| Медленно, CPU 100% | Уменьшить `n-cpu-moe`. Для кода — `--reasoning off`. |
+| Порт занят | `netstat -ano \| findstr 8001`, завершить PID. |
+| В Cursor `model not found` | Имя модели = `id` из `/v1/models`. |
+| Vision молчит | Рядом лежит mmproj, в аргументах есть `--mmproj` и `--no-mmproj-offload`. |
 
 ---
 
-## Фаза 7 — Опционально
+## Фаза 7 — По желанию
 
-- **MTP** + `MTP-GGUF`, `--spec-draft-n-max 2` (+~1 GB VRAM).
-- **Task Scheduler:** logon → `Start-Qwen-Code.ps1`.
-- **Бенчмарк tok/s** до/после `n-cpu-moe`.
+- MTP: отдельный `MTP-GGUF`, `--spec-draft-n-max 2`. Это около +1 GB VRAM.
+- Планировщик заданий: вход в систему → `G:\localAI\AI\scripts\Start-Qwen-Code.ps1`.
+- Замер tok/s до и после изменения `n-cpu-moe`.
 
 ---
 
-## Чего не ждать на этом железе
+## Чего на этом железе не будет
 
-- Полный **Qwen3.6-27B** на GPU в Q4 — **нет**; только деградированные кванты или сильный offload.
-- **128K+ контекст** в Q4 на 12 GB — нереалистично; целиться в **32K–64K** с RAM offload.
-- Скорость cloud-моделей; локально вы выигрываете **приватность, длинный thinking, отсутствие лимитов API**.
+- Полный Qwen3.6-27B Q4 целиком на GPU. Остаются более жёсткие кванты или сильный offload.
+- Контекст 128K в Q4 на 12 GB. Рабочий диапазон — **32K–64K** с вытеснением KV в RAM.
+- Скорость облачной модели. Локально остаются приватность, длинный thinking и отсутствие лимита API.
 
 ---
 
 ## Источники параметров
 
-- Рекомендуемые sampling и thinking/instruct: [Unsloth Qwen3.6 docs](https://unsloth.ai/docs/models/qwen3.6)
-- MoE offload / `models.ini`: [Local AI coding with llama.cpp](https://dzx.fr/blog/local-ai-coding/)
-- VRAM оценки 27B/35B: [quantized.uk Qwen3.6 27B](https://quantized.uk/quant-hub/qwen3-6-27b/), Unsloth memory tables
-
-
+- Sampling и режимы thinking/instruct: [Unsloth Qwen3.6 docs](https://unsloth.ai/docs/models/qwen3.6)
+- MoE offload и `models.ini`: [Local AI coding with llama.cpp](https://dzx.fr/blog/local-ai-coding/)
+- Оценки VRAM 27B/35B: [quantized.uk Qwen3.6 27B](https://quantized.uk/quant-hub/qwen3-6-27b/), таблицы памяти Unsloth
+- Поддержка MSVC 195x в CUDA 13.4: [CUDA Installation Guide for Windows](https://docs.nvidia.com/cuda/cuda-installation-guide-microsoft-windows/)
