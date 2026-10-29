@@ -530,28 +530,27 @@ $dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
 
 ---
 
-## Фаза 5 — Cursor
+## Фаза 5 — JetBrains IDEA
 
-Имя локальной модели в списке само по себе встроенные модели не удаляет. Их отключает включённый **Override OpenAI Base URL** вместе со своим OpenAI API Key. Пока эта пара включена, Cursor шлёт на ваш адрес и GPT, и Composer, и остальные модели, не только Qwen. Для обычной работы оба переключателя выключены.
+Нужен плагин **AI Assistant**. IDEA сама ходит на `127.0.0.1`, туннель не нужен. Локальная модель появляется отдельной секцией в выборе модели чата. Модели JetBrains AI из этого списка не пропадают: переключение — клик по имени модели, настройки больше не трогать.
 
-`http://127.0.0.1:8001/v1` из Cursor не открывается: запрос собирается на серверах Cursor, и `127.0.0.1` для них — это их машина. Нужен публичный HTTPS на локальный порт (ngrok или Cloudflare Tunnel). Промпт при этом всё равно проходит через серверы Cursor. Tab-автодополнение локальную модель не использует.
+В IDE подключается режим **Code**, порт **8002**. Это один адрес. Ярлык **Qwen Think** поднимает другой порт, и эта запись в IDEA молчит, пока снова не запущен **Qwen Code**. Облачные модели JetBrains в это время работают.
 
-Один адрес Override на все модели. Он должен указывать на тот порт, который сейчас слушает: **8002** для Code, **8001** для Think. Имя модели в чате — то же, что в `/v1/models` на этом порту.
+1. Ярлык **Qwen Code**, в окне есть `HTTP server listening`.
+2. **Settings → Tools → AI Assistant → Providers & API keys**.
+3. Third-party AI providers → Provider: **OpenAI-compatible**.
+4. URL: `http://127.0.0.1:8002/v1`. Без `/chat/completions` на конце.
+5. API Key: `sk-local`. Сервер ключ не проверяет, поле нужно самой IDEA.
+6. **Test Connection**, затем **Apply**.
+7. Блок **AI Completion** не менять: Provider остаётся **JetBrains**. Иначе подсказки в редакторе уйдут на 35B и станут медленными.
+8. **Model Assignment** для Core features и Instant helpers не заполнять этой моделью. Тогда Qwen выбирается только вручную в чате, а остальные функции остаются на моделях JetBrains.
 
-Пока нужен Qwen:
+В AI Chat открыть выбор модели. В отдельной секции будет `qwen3.6-35b-a3b-instruct`. Рядом остаются модели JetBrains.
 
-1. Ярлык **Qwen Code** или **Qwen Think**, в окне есть `HTTP server listening`.
-2. Туннель на этот порт. В Cursor попадёт адрес вида `https://ваш-адрес/v1`.
-3. **Settings** (Ctrl+,) → **Models**: включить OpenAI API Key и Override OpenAI Base URL.
-4. Add model: точное имя модели с этого порта.
-5. В чате выбрать эту модель.
-
-Перед Claude, GPT, Gemini или Composer выключить Override OpenAI Base URL и ключ OpenAI. Иначе эти модели уйдут на llama-server и отвалятся.
-
-Проверка самого сервера, без Cursor, из PowerShell на этом ПК:
+Проверка сервера из PowerShell:
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/models"
+Invoke-RestMethod -Uri "http://127.0.0.1:8002/v1/models"
 ```
 
 ---
