@@ -532,25 +532,26 @@ $dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
 
 ## Фаза 5 — Cursor
 
-1. Ярлык **Qwen Code**, в окне есть `HTTP server listening`, порт **8002**.
-2. Cursor **Settings** (Ctrl+,) → **Models**.
-3. API Key: `sk-local`.
-4. Override OpenAI Base URL: `http://127.0.0.1:8002/v1`.
-5. Custom model: `qwen3.6-35b-a3b-instruct` (как в `/v1/models`).
-6. Проверка в Chat. Сетевая ошибка — разрешить `llama-server.exe` в брандмауэре.
-7. DeepThink: остановить Code, запустить Think на **8001**, URL `http://127.0.0.1:8001/v1`, модель `qwen3.6-35b-a3b-think`.
+Имя локальной модели в списке само по себе встроенные модели не удаляет. Их отключает включённый **Override OpenAI Base URL** вместе со своим OpenAI API Key. Пока эта пара включена, Cursor шлёт на ваш адрес и GPT, и Composer, и остальные модели, не только Qwen. Для обычной работы оба переключателя выключены.
 
-```python
-# pip install openai
-from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:8001/v1", api_key="sk-local")
-r = client.chat.completions.create(
-    model="qwen3.6-35b-a3b-think",
-    messages=[{"role": "user", "content": "..."}],
-    max_tokens=8192,
-)
-print(getattr(r.choices[0].message, "reasoning_content", None))
-print(r.choices[0].message.content)
+`http://127.0.0.1:8001/v1` из Cursor не открывается: запрос собирается на серверах Cursor, и `127.0.0.1` для них — это их машина. Нужен публичный HTTPS на локальный порт (ngrok или Cloudflare Tunnel). Промпт при этом всё равно проходит через серверы Cursor. Tab-автодополнение локальную модель не использует.
+
+Один адрес Override на все модели. Он должен указывать на тот порт, который сейчас слушает: **8002** для Code, **8001** для Think. Имя модели в чате — то же, что в `/v1/models` на этом порту.
+
+Пока нужен Qwen:
+
+1. Ярлык **Qwen Code** или **Qwen Think**, в окне есть `HTTP server listening`.
+2. Туннель на этот порт. В Cursor попадёт адрес вида `https://ваш-адрес/v1`.
+3. **Settings** (Ctrl+,) → **Models**: включить OpenAI API Key и Override OpenAI Base URL.
+4. Add model: точное имя модели с этого порта.
+5. В чате выбрать эту модель.
+
+Перед Claude, GPT, Gemini или Composer выключить Override OpenAI Base URL и ключ OpenAI. Иначе эти модели уйдут на llama-server и отвалятся.
+
+Проверка самого сервера, без Cursor, из PowerShell на этом ПК:
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/models"
 ```
 
 ---
