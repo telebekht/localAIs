@@ -76,10 +76,12 @@ flowchart LR
 Команда ниже — **одна строка**. Её можно вставлять в текущий PowerShell даже со старым PSReadLine. Переносов внутри нет, переворачивать нечего.
 
 ```powershell
-$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; Copy-Item "$bin\cudart64_13.dll","$bin\cublas64_13.dll","$bin\cublasLt64_13.dll" "G:\localAI\AI\llama.cpp\build\bin\Release" -Force; Write-Host "MODEL: $m"; Write-Host "MMPROJ: $p"; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0 --chat-template-kwargs '{"preserve_thinking":true}'
+$env:Path = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64;" + $env:Path; $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if (-not (Test-Path "$bin\cudart64_13.dll")) { $bin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"; $env:Path = "$bin;" + $env:Path }; $d = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"; $m = (Get-ChildItem $d -Filter "*UD-Q4_K_XL*.gguf" | Select-Object -First 1).FullName; $p = (Get-ChildItem $d -Filter "*mmproj*.gguf" | Select-Object -First 1).FullName; if (-not $m) { throw "Нет GGUF в $d" }; if (-not $p) { throw "Нет mmproj в $d" }; Copy-Item "$bin\cudart64_13.dll","$bin\cublas64_13.dll","$bin\cublasLt64_13.dll" "G:\localAI\AI\llama.cpp\build\bin\Release" -Force; Write-Host "MODEL: $m"; Write-Host "MMPROJ: $p"; $env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"preserve_thinking":true}'; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --mmproj $p --host 127.0.0.1 --port 8001 --alias "qwen3.6-35b-a3b-think" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning on --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 --presence-penalty 0.0
 ```
 
-Окно не закрывать. Успех — строка `HTTP server listening` и порт **8001**. Остановка — Ctrl+C.
+PowerShell 5.1 вырезает кавычки из аргумента нативной программы, поэтому `--chat-template-kwargs '{"preserve_thinking":true}'` доходит как `{preserve_thinking:true}` и JSON ломается. Тот же JSON задаётся переменной `LLAMA_ARG_CHAT_TEMPLATE_KWARGS` до запуска, её llama-server читает сам.
+
+Окно не закрывать. Сначала в логе будут CUDA и загрузка GGUF (это минуты, не зависание). Успех — строка `HTTP server listening` и порт **8001**. Остановка — Ctrl+C.
 
 Режим кода, порт **8002**, только после Ctrl+C в окне thinking. Тоже одна строка:
 
@@ -473,13 +475,13 @@ $script:COMMON = @(
 
 @'
 . "$PSScriptRoot\Qwen-Common.ps1"
+$env:LLAMA_ARG_CHAT_TEMPLATE_KWARGS = '{"preserve_thinking":true}'
 & $SERVER @COMMON `
   --port 8001 `
   --alias "qwen3.6-35b-a3b-think" `
   --reasoning on `
   --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.0 `
-  --presence-penalty 0.0 `
-  --chat-template-kwargs '{"preserve_thinking":true}'
+  --presence-penalty 0.0
 '@ | Set-Content -Path (Join-Path $SCRIPTS "Start-Qwen-Think.ps1") -Encoding utf8
 
 @'
@@ -635,6 +637,7 @@ print(r.choices[0].message.content)
 | `huggingface-cli` / `hf` не распознано | `python -c "from huggingface_hub import login; login()"`. Скачивание — `snapshot_download` из фазы 2.2. |
 | `Имя "\Qwen-Common.ps1" не распознано` | В консоль попала строка с `$PSScriptRoot`. Запускать файл: `& "G:\localAI\AI\scripts\Start-Qwen-Think.ps1"`, либо одну строку из раздела «Запуск сервера». |
 | `Join-Path` и `Path = NULL`, строки блока в консоли идут снизу вверх | PSReadLine 2.0 переворачивает многострочную вставку. Сервер — одной строкой из раздела «Запуск сервера». Затем `Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber` и новое окно PowerShell. |
+| `parse error` у `--chat-template-kwargs`, в тексте `{p` | PowerShell снял кавычки с JSON. Задавать `LLAMA_ARG_CHAT_TEMPLATE_KWARGS`, как в строке запуска. |
 | Сервер ищется в `D:\AI\...` | Старый пример пути. На этой машине корень — `G:\localAI\AI\llama.cpp`. |
 | CUDA OOM | Поднять `n-cpu-moe`, квант Q3, `parallel 1`. |
 | RAM OOM, swap | Уменьшить `ctx-size`. Держать один сервер. |
