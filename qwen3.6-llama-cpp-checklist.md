@@ -425,33 +425,22 @@ parallel = 1
 '@ | Set-Content -Path (Join-Path $configDir "models.ini") -Encoding utf8
 ```
 
-### 3.2 Автозапуск и переключение
+### 3.2 Ярлыки переключения
 
-Оба режима — один и тот же GGUF. На 32 GB в памяти живёт только один процесс. Переключение останавливает текущий `llama-server.exe` и загружает модель заново: это несколько минут чтения с диска, не мгновенная смена флага. После включения компьютера ручной запуск не нужен: ярлык в автозагрузке сам поднимает режим **think** в свёрнутом окне, пока идёт вход в Windows.
+Оба режима — один и тот же GGUF. На 32 GB в памяти живёт только один процесс. Переключение останавливает текущий `llama-server.exe` и загружает модель заново: это несколько минут чтения с диска, не мгновенная смена флага. При включении компьютера сервер сам не стартует.
 
-Скрипты лежат в репозитории: `scripts/Start-Qwen-Think.ps1`, `scripts/Start-Qwen-Code.ps1`, `scripts/Switch-Qwen.ps1`. Одна строка скачивает их и создаёт ярлыки. Если сервер уже слушает порт 8001, это окно не трогает.
-
-```powershell
-$dir = "G:\localAI\AI\scripts"; New-Item -ItemType Directory -Force -Path $dir | Out-Null; foreach ($f in "Start-Qwen-Think.ps1","Start-Qwen-Code.ps1","Switch-Qwen.ps1") { Invoke-WebRequest "https://raw.githubusercontent.com/telebekht/localAIs/master/scripts/$f" -OutFile (Join-Path $dir $f) -UseBasicParsing }; $w = New-Object -ComObject WScript.Shell; $startup = $w.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")); $startup.TargetPath = "powershell.exe"; $startup.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$dir\Start-Qwen-Think.ps1`""; $startup.WorkingDirectory = "G:\localAI\AI\llama.cpp"; $startup.WindowStyle = 7; $startup.Save(); foreach ($pair in @(@("Qwen Think","think"), @("Qwen Code","code"))) { $lnk = $w.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "$($pair[0]).lnk")); $lnk.TargetPath = "powershell.exe"; $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$dir\Switch-Qwen.ps1`" $($pair[1])"; $lnk.WorkingDirectory = "G:\localAI\AI\llama.cpp"; $lnk.Save() }; Get-ChildItem $dir; Get-ChildItem ([Environment]::GetFolderPath("Desktop")) -Filter "Qwen*.lnk"; Get-Item (Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")
-```
-
-Что появляется:
-
-| Ярлык | Где | Что делает |
-| --- | --- | --- |
-| `Qwen` | Автозагрузка Windows | При входе в систему свёрнуто запускает think, порт **8001** |
-| `Qwen Think` | Рабочий стол | Останавливает текущий сервер и снова запускает think, порт **8001** |
-| `Qwen Code` | Рабочий стол | Останавливает текущий сервер и запускает code, порт **8002** |
-
-Двойной щелчок по ярлыку на рабочем столе — всё переключение. Дождаться в этом окне `HTTP server listening`. Предыдущее окно сервера после остановки процесса можно закрыть. Два ярлыка подряд не запускать, пока в новом окне не появится `listening`: второй старт убьёт первый и начнёт загрузку ещё раз.
-
-Чтобы после входа в систему поднимался code, а не think, в свойствах ярлыка автозагрузки заменить `Start-Qwen-Think.ps1` на `Start-Qwen-Code.ps1`.
-
-Проверка, что автозагрузка на месте:
+Скрипты лежат в репозитории: `scripts/Start-Qwen-Think.ps1`, `scripts/Start-Qwen-Code.ps1`, `scripts/Switch-Qwen.ps1`. Одна строка скачивает их, кладёт два ярлыка на рабочий стол и удаляет ярлык автозагрузки `Qwen.lnk`, если он уже был создан. Уже запущенный сервер эта строка не останавливает.
 
 ```powershell
-Get-Item (Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk")
+$dir = "G:\localAI\AI\scripts"; New-Item -ItemType Directory -Force -Path $dir | Out-Null; foreach ($f in "Start-Qwen-Think.ps1","Start-Qwen-Code.ps1","Switch-Qwen.ps1") { Invoke-WebRequest "https://raw.githubusercontent.com/telebekht/localAIs/master/scripts/$f" -OutFile (Join-Path $dir $f) -UseBasicParsing }; $startupLnk = Join-Path ([Environment]::GetFolderPath("Startup")) "Qwen.lnk"; if (Test-Path $startupLnk) { Remove-Item $startupLnk -Force }; $w = New-Object -ComObject WScript.Shell; foreach ($pair in @(@("Qwen Think","think"), @("Qwen Code","code"))) { $lnk = $w.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "$($pair[0]).lnk")); $lnk.TargetPath = "powershell.exe"; $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$dir\Switch-Qwen.ps1`" $($pair[1])"; $lnk.WorkingDirectory = "G:\localAI\AI\llama.cpp"; $lnk.Save() }; Get-ChildItem $dir; Get-ChildItem ([Environment]::GetFolderPath("Desktop")) -Filter "Qwen*.lnk"
 ```
+
+| Ярлык | Что делает |
+| --- | --- |
+| `Qwen Think` | Останавливает текущий сервер и запускает think, порт **8001**, модель `qwen3.6-35b-a3b-think` |
+| `Qwen Code` | Останавливает текущий сервер и запускает code, порт **8002**, модель `qwen3.6-35b-a3b-instruct` |
+
+Двойной щелчок — всё переключение. Дождаться в новом окне `HTTP server listening`. Старое окно сервера после остановки процесса можно закрыть. Второй ярлык нажимать только после `listening`: иначе загрузка начнётся заново.
 
 ### 3.3 Два режима
 
@@ -592,7 +581,7 @@ print(r.choices[0].message.content)
 ## Фаза 7 — По желанию
 
 - MTP: отдельный `MTP-GGUF`, `--spec-draft-n-max 2`. Это около +1 GB VRAM.
-- Автозапуск и ярлыки переключения уже описаны в разделе 3.2.
+- Ярлыки переключения описаны в разделе 3.2. Автозапуска нет.
 - Замер tok/s до и после изменения `n-cpu-moe`.
 
 ---
