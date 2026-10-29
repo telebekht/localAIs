@@ -553,22 +553,17 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/models"
 ```
 
-В JSON поле `id` равно `--alias`: `qwen3.6-35b-a3b-think`.
+PowerShell показывает это таблицей. В ней есть `name=qwen3.6-35b-a3b-think`. Это имя модели для запросов. Окно с сервером при этом не закрывать.
 
 ### 4.2 Thinking
 
-```powershell
-$body = @{
-  model = "qwen3.6-35b-a3b-think"
-  messages = @(@{ role = "user"; content = "17*23=? Сначала рассуждай, потом одно число." })
-  max_tokens = 2048
-} | ConvertTo-Json -Depth 5
+Одна строка во втором окне. Ответ может идти несколько минут: thinking сначала пишет скрытые токены.
 
-Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/chat/completions" `
-  -Method Post -ContentType "application/json; charset=utf-8" -Body $body
+```powershell
+$r = Invoke-RestMethod -Uri "http://127.0.0.1:8001/v1/chat/completions" -Method Post -ContentType "application/json" -Body ([Text.Encoding]::UTF8.GetBytes('{"model":"qwen3.6-35b-a3b-think","messages":[{"role":"user","content":"17*23=? Think step by step, then one number."}],"max_tokens":2048}')); $r.choices[0].message.reasoning_content; $r.choices[0].message.content
 ```
 
-Успех: **391** и/или `reasoning_content`. Пустой ответ — поднять `max_tokens`.
+Успех: **391**. Пустой ответ — поднять `max_tokens`.
 
 ### 4.3 Code на порту 8002
 
