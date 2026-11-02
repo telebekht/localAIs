@@ -541,6 +541,29 @@ $dir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
 
 ---
 
+## Защита доступа с телефона
+
+У `llama-server` нет отдельного пароля для HTML-страницы, но есть встроенный API-ключ. Скрипты `Start-Qwen-Think.ps1` и `Start-Qwen-Code.ps1` используют один ключ из:
+
+`G:\localAI\AI\scripts\qwen-api-key.txt`
+
+При первом запуске ключ создаётся автоматически. Это случайная строка длиной 64 символа; файл не попадает в Git. API-запросы и сообщения без ключа получают `401`. Сам HTML может открываться без ключа, но отправить запрос через него нельзя. В веб-интерфейсе llama.cpp вставьте ключ в Settings, если он попросит API key.
+
+После обновления скриптов остановите старый сервер Ctrl+C и запустите его ярлыком заново:
+
+```powershell
+Get-Content "G:\localAI\AI\scripts\qwen-api-key.txt"
+```
+
+Перед запуском с телефона один раз разрешите доступ только из локальной сети (PowerShell от администратора):
+
+```powershell
+New-NetFirewallRule -DisplayName "llama-server 8001 LAN" -Direction Inbound -Protocol TCP -LocalPort 8001 -RemoteAddress LocalSubnet -Action Allow
+New-NetFirewallRule -DisplayName "llama-server 8002 LAN" -Direction Inbound -Protocol TCP -LocalPort 8002 -RemoteAddress LocalSubnet -Action Allow
+```
+
+Не пробрасывайте эти порты в интернет. API-ключ защищает запросы, но трафик по обычному HTTP не шифруется; в домашней Wi-Fi сети это приемлемо, в публичной сети — нет.
+
 ## Фаза 5 — Cursor
 
 1. Ярлык **Qwen Code**, в окне есть `HTTP server listening`, порт **8002**.

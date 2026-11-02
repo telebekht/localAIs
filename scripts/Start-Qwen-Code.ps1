@@ -4,6 +4,10 @@ if (-not (Test-Path (Join-Path $cudaBin "cudart64_13.dll"))) {
     $cudaBin = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"
 }
 $env:Path = "$cudaBin;" + $env:Path
+$apiKeyFile = "G:\localAI\AI\scripts\qwen-api-key.txt"
+if (-not (Test-Path $apiKeyFile)) {
+    & "$PSScriptRoot\Ensure-Qwen-ApiKey.ps1"
+}
 
 $server = "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe"
 $modelDir = "G:\localAI\Models\llama\unsloth\Qwen3.6-35B-A3B-GGUF"
@@ -23,4 +27,4 @@ Write-Host "MODEL: $model"
 Write-Host "MMPROJ: $mmproj"
 Write-Host "MODE: code  PORT: 8002"
 
-& $server --model $model --mmproj $mmproj --host 127.0.0.1 --port 8002 --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
+& $server --model $model --mmproj $mmproj --host 0.0.0.0 --port 8002 --api-key-file $apiKeyFile --alias "qwen3.6-35b-a3b-instruct" --ctx-size 32768 --n-gpu-layers 99 --n-cpu-moe 22 --cache-ram 8192 --parallel 1 --no-mmproj-offload --reasoning off --temp 0.7 --top-p 0.8 --top-k 20 --min-p 0.0 --presence-penalty 1.5
