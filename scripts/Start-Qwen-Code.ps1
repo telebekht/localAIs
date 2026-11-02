@@ -6,7 +6,11 @@ if (-not (Test-Path (Join-Path $cudaBin "cudart64_13.dll"))) {
 $env:Path = "$cudaBin;" + $env:Path
 $apiKeyFile = "G:\localAI\AI\scripts\qwen-api-key.txt"
 if (-not (Test-Path $apiKeyFile)) {
-    & "$PSScriptRoot\Ensure-Qwen-ApiKey.ps1"
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    ([BitConverter]::ToString($bytes) -replace "-", "").ToLowerInvariant() |
+        Set-Content -Path $apiKeyFile -Encoding ascii -NoNewline
 }
 
 $server = "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe"
