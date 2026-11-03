@@ -1,314 +1,192 @@
 # Чек-лист: BioMistral-7B-Instruct Q4_K_M на i5-11500 + 32GB + RTX 3060 Ti 8GB (llama.cpp)
 
-## Отличия от [Qwen3.6 чек-листа](qwen3.6-llama-cpp-checklist.md)
+Все команды — **Windows PowerShell**. Этот чек-лист использует реальные пути `G:\localAI`, CUDA 13.4 и Visual Studio 2026. Он заменяет устаревшие примеры с `D:\AI`, CUDA 12.6, `huggingface-cli`, `$PSScriptRoot` в консоли и Cursor.
 
-| | Qwen3.6 35B-A3B | BioMistral 7B Q4_K_M |
-| --- | --- | --- |
-| VRAM | 12 GB + гибрид RAM, `n-cpu-moe` | **8 GB, весь модель на GPU** |
-| Контекст | 32k+ | **2048 native** (обучение); 4096 — осторожно |
-| Серверы | Think + Code (два режима) | **один** медицинский профиль |
-| Скорость (ориентир) | ~8–18 tok/s | **~55–75 tok/s** |
-| Назначение | код, reasoning, vision | **мед. тексты, MCQ, abstract (исследования)** |
+> **Только исследования.** [BioMistral](https://huggingface.co/BioMistral/BioMistral-7B) не прошла клиническую валидацию. Не используйте её для диагностики, назначения лечения или иных решений о здоровье. Проверяйте факты по первичным источникам и квалифицированному специалисту.
 
----
+## Что поместится
 
-## Disclaimer (обязательно прочитать)
+| Параметр | Значение |
+| --- | --- |
+| Модель | BioMistral-7B-Instruct, Q4_K_M |
+| Диск | ~4.2–4.4 GB |
+| GPU | RTX 3060 Ti 8 GB, весь слой на GPU |
+| Контекст | Начать с 2048; 4096 — только после проверки VRAM |
+| Скорость | ориентир ~55–75 tok/s |
+| Сервер | один процесс, порт 8080 |
 
-BioMistral предназначен **только для исследований**. Авторы [предупреждают](https://huggingface.co/BioMistral/BioMistral-7B): модель **не** проходила клиническую валидацию, возможны bias и галлюцинации. **Не использовать** для диагностики, назначения лечения или решений в реальной медицине.
+BioMistral основана на Mistral-7B-Instruct-v0.1. Для медицинских публикаций и тестовых вопросов она лучше работает на английском. Это не coding-модель и не замена Qwen для IDEA.
 
----
+## Сначала: починить многострочную вставку PowerShell
 
-## Модель и файл
-
-**«BioMistral-7B-Instruct Q4_K_M»** в экосистеме Hugging Face — это **[BioMistral/BioMistral-7B](https://huggingface.co/BioMistral/BioMistral-7B)** (база **Mistral-7B-Instruct-v0.1**, домен PubMed Central), квант **Q4_K_M** (~**4.37 GB**).
-
-- Официальный GGUF: [BioMistral/BioMistral-7B-GGUF](https://huggingface.co/BioMistral/BioMistral-7B-GGUF)
-- Sequence length по model card: **2048** токенов
-
-```mermaid
-flowchart LR
-  subgraph client [Clients]
-    Cursor[Cursor_OpenAI_API]
-    PS[PowerShell_tests]
-  end
-  subgraph server [llama-server]
-    Med["Port_8080 BioMistral"]
-  end
-  subgraph vram [RTX_3060_Ti_8GB]
-    W["Weights_4.4GB"]
-    KV["KV_2048_4096"]
-  end
-  Cursor --> Med
-  PS --> Med
-  Med --> W
-  Med --> KV
-```
-
----
-
-## Фаза 0 — Подготовка Windows, пошагово
-
-> Если **llama.cpp уже собран** по Qwen-чек-листу на этом ПК — достаточно **0.1, 0.2, 0.7** и переходите к фазе 2.
-
-### 0.1 Каталоги
+В старом PSReadLine 2.0 многострочная вставка может попасть в консоль **снизу вверх**. Пока не обновили модуль, вставляйте только однострочные команды из этого файла.
 
 ```powershell
-New-Item -ItemType Directory -Force -Path "D:\AI\llama.cpp", "D:\Models\llama", "D:\AI\scripts"
+Install-Module PSReadLine -Scope CurrentUser -Force -AllowClobber
 ```
 
-### 0.2 Драйвер NVIDIA
-
-1. [nvidia.com/drivers](https://www.nvidia.com/drivers) → **RTX 3060 Ti** → Windows.
-2. После установки:
+Закройте окно PowerShell, откройте новое. Проверка:
 
 ```powershell
-nvidia-smi
+(Get-Module PSReadLine).Version
 ```
 
-Ожидаете: **8192 MiB**, compute capability **8.6**.
+Нужна 2.2 или новее.
 
-### 0.3 CUDA Toolkit (только для сборки llama.cpp)
+## Пути этой машины
 
-[CUDA 12.4 / 12.6](https://developer.nvidia.com/cuda-downloads) → проверка: `nvcc --version`.
+| Что | Путь |
+| --- | --- |
+| llama.cpp | `G:\localAI\AI\llama.cpp` |
+| Сервер | `G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe` |
+| Модель | `G:\localAI\Models\llama\BioMistral\BioMistral-7B-GGUF` |
+| Скрипты | `G:\localAI\AI\scripts` |
+| CUDA | `C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4` |
 
-### 0.4 Visual Studio 2022
+Уже собранный llama.cpp из Qwen-чек-листа подходит: RTX 3060 Ti тоже Ampere `sm_86`.
 
-Workload **Desktop development with C++**, MSVC v143, Windows SDK, CMake tools.
+## Фаза 1 — CUDA и llama.cpp
 
-### 0.5 Python + Hugging Face CLI
+Пропустите, если существует `G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe` и команда ниже показывает `CUDA0`.
+
+```powershell
+$bin = "G:\localAI\AI\llama.cpp\build\bin\Release"; & "$bin\llama-server.exe" --list-devices
+```
+
+На Visual Studio 18 2026 нужен **CUDA Toolkit 13.4**, не CUDA 12.6. CUDA 12.6 не содержит нужной интеграции для `VC\v180`.
+
+Если сборка нужна заново, сначала в новом PowerShell:
+
+```powershell
+$cuda = "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"; $env:CudaToolkitDir = $cuda; $env:CUDA_PATH = $cuda; $env:CUDA_PATH_V13_4 = $cuda; $env:Path = "$cuda\bin\x64;$cuda\bin;" + $env:Path
+```
+
+Затем:
+
+```powershell
+cd G:\localAI\AI\llama.cpp; if (Test-Path .\build) { Remove-Item -Recurse -Force .\build }; cmake -B build --fresh -T "cuda=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4" -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=86 -DCUDAToolkit_ROOT="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4"; cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS --target llama-server llama-cli
+```
+
+Если `llama-server.exe --version` молчит или Windows просит DLL, скопируйте `cudart64_13.dll`, `cublas64_13.dll`, `cublasLt64_13.dll` из `CUDA\v13.4\bin\x64` рядом с `llama-server.exe`.
+
+## Фаза 2 — скачать BioMistral
+
+Официальный репозиторий GGUF: [BioMistral/BioMistral-7B-GGUF](https://huggingface.co/BioMistral/BioMistral-7B-GGUF).
+
+Команды `huggingface-cli` больше не нужны. Публичная модель скачивается и без входа; для больших/частых скачиваний входите через Python.
 
 ```powershell
 python -m pip install -U pip "huggingface_hub[cli]" hf-transfer
-[Environment]::SetEnvironmentVariable("LLAMA_CACHE", "D:\Models\llama", "User")
-[Environment]::SetEnvironmentVariable("HF_HUB_ENABLE_HF_TRANSFER", "1", "User")
 ```
 
-### 0.6 Файл подкачки
-
-Для 7B на GPU достаточно **32768–49152 MB** на SSD (Win+R → `sysdm.cpl` → виртуальная память).
-
-### 0.7 Перед запуском
-
-- Закрыть игры и тяжёлые GPU-приложения.
-- Цель: **≥ 1.5 GB свободной VRAM** до старта (веса ~4.4 GB + KV + runtime ≈ **5.5–7.5 GB** при ctx 2048–4096).
+Логин — по желанию:
 
 ```powershell
-nvidia-smi -l 2
+python -c "from huggingface_hub import login; login()"
 ```
 
----
-
-## Фаза 1 — Сборка llama.cpp (CUDA, sm_86)
-
-В **x64 Native Tools Command Prompt for VS 2022**:
-
-```cmd
-cd /d D:\AI
-git clone https://github.com/ggml-org/llama.cpp
-cd llama.cpp
-cmake -B build -DBUILD_SHARED_LIBS=OFF -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=86
-cmake --build build --config Release -j %NUMBER_OF_PROCESSORS% --target llama-server llama-cli
-build\bin\Release\llama-server.exe --version
-```
-
-Альтернатива: [prebuilt CUDA binaries](https://github.com/ggerganov/llama.cpp/releases) для Windows.
-
----
-
-## Фаза 2 — Загрузка BioMistral Q4_K_M
+Скачивание Q4_K_M:
 
 ```powershell
-$env:LLAMA_CACHE = "D:\Models\llama"
-$dest = "$env:LLAMA_CACHE\BioMistral\BioMistral-7B-GGUF"
-hf download BioMistral/BioMistral-7B-GGUF `
-  --local-dir $dest `
-  --include "*Q4_K_M*"
+$dest = "G:\localAI\Models\llama\BioMistral\BioMistral-7B-GGUF"; New-Item -ItemType Directory -Force -Path $dest | Out-Null; $env:HF_HUB_ENABLE_HF_TRANSFER = "1"; python -c @"
+from huggingface_hub import snapshot_download
+snapshot_download(repo_id='BioMistral/BioMistral-7B-GGUF', local_dir=r'$dest', allow_patterns=['*Q4_K_M*.gguf'])
+"@
 ```
 
 Проверка:
 
 ```powershell
-Get-ChildItem $dest -Recurse -Filter "*Q4_K_M*.gguf" | Select-Object Name, @{N='GB';E={[math]::Round($_.Length/1GB,2)}}
+Get-ChildItem "G:\localAI\Models\llama\BioMistral\BioMistral-7B-GGUF" -Recurse -Filter "*Q4_K_M*.gguf" | Select-Object Name, @{N='GB';E={[math]::Round($_.Length/1GB,2)}}
 ```
 
-Ожидаете **~4.2–4.4 GB** на диске.
+## Фаза 3 — запуск с ключом и ярлыком
 
-Запас по качеству (если VRAM позволяет при ctx 2048): **Q5_K_M** (~5.1 GB). Альтернативная весовая сборка: [BioMistral-7B-DARE-GGUF](https://huggingface.co/BioMistral/BioMistral-7B-DARE-GGUF) (часто лучше на MCQ-бенчмарках).
-
----
-
-## Фаза 3 — Конфиг под RTX 3060 Ti 8GB
-
-### 3.0 Параметры
-
-| Параметр | Значение | Зачем |
-| --- | --- | --- |
-| `n-gpu-layers` | `99` | Весь 7B на GPU |
-| `ctx-size` | **`2048`** | Нативное окно BioMistral |
-| `ctx-size` (опц.) | `4096` | Длинный abstract + вопрос; следить OOM |
-| `parallel` | `1` | Cursor / один пользователь; `2` только при ctx 2048 |
-| `threads` | `8`–`10` | i5-11500, 12 потоков |
-| `--temp` | `0.1`–`0.3` | Меньше галлюцинаций в фактах |
-| `--repeat-penalty` | `1.1` | Меньше повторов |
-
-При нехватке VRAM на ctx 4096:
-
-```text
---cache-type-k q8_0 --cache-type-v q8_0
-```
-
-### 3.1 `models.ini` (опционально)
-
-`%USERPROFILE%\.config\llama.cpp\models.ini`:
-
-```ini
-[*]
-no-mmap = true
-sleep-idle-seconds = 600
-
-[BioMistral/BioMistral-7B-GGUF:Q4_K_M]
-alias = biomistral-7b-instruct
-ctx-size = 2048
-n-gpu-layers = 99
-parallel = 1
-```
-
-### 3.2 `D:\AI\scripts\BioMistral-Common.ps1`
+Ниже одна строка: она создаёт случайный API-ключ при первом запуске и поднимает сервер на порту **8080**. Сервер доступен с домашней сети, но каждый запрос к API требует ключ. HTML-страница открывается, однако Web UI потребует ключ в Settings перед отправкой сообщения.
 
 ```powershell
-$LLAMA_ROOT = "D:\AI\llama.cpp"
-$script:SERVER = "$LLAMA_ROOT\build\bin\Release\llama-server.exe"
-$env:LLAMA_CACHE = "D:\Models\llama"
-
-$MODEL_DIR  = "$env:LLAMA_CACHE\BioMistral\BioMistral-7B-GGUF"
-$MODEL_GGUF = (Get-ChildItem $MODEL_DIR -Filter "*Q4_K_M*.gguf" | Select-Object -First 1).FullName
-if (-not $MODEL_GGUF) { throw "Q4_K_M GGUF not found in $MODEL_DIR" }
-
-$script:COMMON = @(
-  "--model", $MODEL_GGUF,
-  "--host", "127.0.0.1",
-  "--ctx-size", "2048",
-  "--n-gpu-layers", "99",
-  "--parallel", "1",
-  "--threads", "10"
-)
+$cuda="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin\x64"; if(-not(Test-Path "$cuda\cudart64_13.dll")){$cuda="C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.4\bin"}; $env:Path="$cuda;"+$env:Path; $scripts="G:\localAI\AI\scripts"; New-Item -ItemType Directory -Force -Path $scripts|Out-Null; $keyFile="$scripts\biomistral-api-key.txt"; if(-not(Test-Path $keyFile)){$b=New-Object byte[] 32;$r=[Security.Cryptography.RandomNumberGenerator]::Create();try{$r.GetBytes($b)}finally{$r.Dispose()};([BitConverter]::ToString($b)-replace "-","").ToLowerInvariant()|Set-Content $keyFile -Encoding ascii -NoNewline}; $m=(Get-ChildItem "G:\localAI\Models\llama\BioMistral\BioMistral-7B-GGUF" -Filter "*Q4_K_M*.gguf"|Select-Object -First 1).FullName; if(-not $m){throw "Нет Q4_K_M GGUF"}; & "G:\localAI\AI\llama.cpp\build\bin\Release\llama-server.exe" --model $m --host 0.0.0.0 --port 8080 --api-key-file $keyFile --alias biomistral-7b-instruct --ctx-size 2048 --n-gpu-layers 99 --parallel 1 --threads 10 --temp 0.2 --top-p 0.9 --top-k 40 --min-p 0.05 --repeat-penalty 1.1
 ```
 
-### 3.3 `Start-BioMistral-Med.ps1` (факты / MCQ)
+Успех: `HTTP server listening`. Остановка: Ctrl+C. Порт 8080 занят только пока это окно открыто.
+
+Ключ:
 
 ```powershell
-. "$PSScriptRoot\BioMistral-Common.ps1"
-& $SERVER @COMMON `
-  --port 8080 `
-  --alias "biomistral-7b-instruct" `
-  --temp 0.2 --top-p 0.9 --top-k 40 --min-p 0.05 `
-  --repeat-penalty 1.1
+Get-Content "G:\localAI\AI\scripts\biomistral-api-key.txt"
 ```
 
-### 3.4 `Start-BioMistral-Explain.ps1` (развёрнутые объяснения, учеба)
+### VRAM и тюнинг
+
+- Базовый режим: `ctx-size 2048`, `parallel 1`.
+- Для 4096 сначала убедитесь через `nvidia-smi`, что VRAM не кончается. В команду добавить `--ctx-size 4096` и `--cache-type-k q8_0 --cache-type-v q8_0`.
+- CUDA OOM: верните 2048, закройте браузер/игры, оставьте `parallel 1`.
+- Q5_K_M может дать немного качества, но на 8 GB уменьшает запас под KV. Q4_K_M — безопасный старт.
+
+## Фаза 4 — проверить API
+
+Во втором окне PowerShell:
 
 ```powershell
-. "$PSScriptRoot\BioMistral-Common.ps1"
-& $SERVER @COMMON `
-  --port 8080 `
-  --alias "biomistral-7b-instruct" `
-  --temp 0.5 --top-p 0.95 --top-k 50 --min-p 0.05 `
-  --repeat-penalty 1.05
+$key = Get-Content "G:\localAI\AI\scripts\biomistral-api-key.txt" -Raw; Invoke-RestMethod -Uri "http://127.0.0.1:8080/v1/models" -Headers @{Authorization="Bearer $($key.Trim())"}
 ```
 
-Запуск:
+Тестовый запрос одной строкой:
 
 ```powershell
-Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
-D:\AI\scripts\Start-BioMistral-Med.ps1
+$key=(Get-Content "G:\localAI\AI\scripts\biomistral-api-key.txt" -Raw).Trim(); $body='{"model":"biomistral-7b-instruct","messages":[{"role":"user","content":"Which organ produces insulin? A) Liver B) Pancreas C) Spleen D) Kidney. Answer with one letter then a brief rationale."}],"max_tokens":128}'; (Invoke-RestMethod -Uri "http://127.0.0.1:8080/v1/chat/completions" -Method Post -ContentType "application/json" -Headers @{Authorization="Bearer $key"} -Body ([Text.Encoding]::UTF8.GetBytes($body))).choices[0].message.content
 ```
 
-**Шаблон Mistral Instruct** (для `llama-cli`; server обычно применяет chat template из GGUF):
+Ожидаемый смысл ответа: `B`, pancreas.
 
-```text
-<s>[INST] Your question here [/INST]
-```
+## Телефон, встроенный Web UI
 
-### 3.5 Профили задач
+Компьютер и телефон должны быть в одном обычном домашнем Wi-Fi. Гостевая сеть и мобильный интернет не подойдут.
 
-| Сценарий | Скрипт | Промпт |
-| --- | --- | --- |
-| MCQ (USMLE-style) | Med, temp 0.2 | «Answer with letter A–D only, then 2-sentence rationale» |
-| Разбор кейса (учеба) | Explain | Симптомы + анализы; «differential as hypotheses, not prescriptions» |
-| Summary abstract | Med | Вставить abstract ≤ ~1500 tokens |
-| Troubleshooting ПО/лаб. | Explain | Явно: не мед. совет пациенту |
-| RAG по PDF/PubMed | Med | Контекст в `[INST]`, «answer only from context» |
-
-**Язык:** модель сильнее на **английском** (и частично FR/DE/ES). Для русских запросов — просить **bilingual** или ответ на EN.
-
----
-
-## Фаза 4 — Проверка
-
-### 4.1 API
+Один раз в PowerShell **от администратора**:
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8080/v1/models"
+New-NetFirewallRule -DisplayName "BioMistral 8080 LAN" -Direction Inbound -Protocol TCP -LocalPort 8080 -RemoteAddress LocalSubnet -Action Allow
 ```
 
-### 4.2 Тест MCQ
+Узнать IP компьютера:
 
 ```powershell
-$body = @{
-  model = "biomistral-7b-instruct"
-  messages = @(@{
-    role = "user"
-    content = "Which organ produces insulin? A) Liver B) Pancreas C) Spleen D) Kidney. Answer with one letter then brief rationale."
-  })
-  max_tokens = 256
-} | ConvertTo-Json -Depth 5
-
-Invoke-RestMethod -Uri "http://127.0.0.1:8080/v1/chat/completions" `
-  -Method Post -ContentType "application/json; charset=utf-8" -Body $body
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.PrefixOrigin -ne "WellKnown" } | Select-Object IPAddress, InterfaceAlias
 ```
 
-Ожидаете **B** / Pancreas.
+На телефоне открыть `http://IP_КОМПЬЮТЕРА:8080`. В настройках Web UI вставить содержимое `biomistral-api-key.txt` как API key.
 
-### 4.3 VRAM
+Порт не пробрасывать в интернет. API-ключ защищает запросы, но HTTP в домашней Wi-Fi сети не шифруется.
 
-При генерации: `nvidia-smi` → **~5–7 GB** used (ctx 2048).
+## IDEA и Cursor
 
----
+BioMistral — медицинская чат-модель, не модель автодополнения кода. Не назначайте её в IDEA AI Completion. Для IDEA оставьте JetBrains/Mellum или Qwen2.5-Coder.
 
-## Фаза 5 — Cursor
+В Cursor глобальный Override OpenAI Base URL перенаправляет и другие модели на локальный сервер. Это ломает встроенные GPT/Claude/Composer, поэтому BioMistral туда не подключается как постоянная модель.
 
-1. Запустить **Start-BioMistral-Med.ps1** (порт **8080**).
-2. Settings → Models → Override OpenAI Base URL: `http://127.0.0.1:8080/v1`
-3. API Key: `sk-local`
-4. Custom model: `biomistral-7b-instruct`
+Для теста из любого OpenAI-совместимого клиента:
 
-**Параллельно с Qwen:** Qwen на `:8002`, BioMistral на `:8080` — **оба могут работать** на 32 GB RAM (7B + 35B hybrid тяжело; если Qwen уже грузит RAM, BioMistral один).
+- Base URL: `http://127.0.0.1:8080/v1`
+- Model: `biomistral-7b-instruct`
+- API key: значение из `biomistral-api-key.txt`
 
----
+## Траблшутинг
 
-## Фаза 6 — Траблшутинг
-
-| Симптом | Действие |
+| Симптом | Решение |
 | --- | --- |
-| CUDA OOM | `ctx-size 2048`, `parallel 1`, закрыть GPU apps |
-| Медленно (~5 tok/s) | Пересобрать с `GGML_CUDA=ON`; не CPU-only |
-| Галлюцинации | ↓ temp, RAG-only prompts, EN prompts |
-| Обрезанный ответ | Длинный prompt > 2048 → сократить контекст |
-| Порт занят | `netstat -ano \| findstr 8080` |
-
----
-
-## Фаза 7 — Опционально
-
-- **Q5_K_M** — лучше качество, ctx 2048 на 8 GB обычно OK.
-- **BioMistral-7B-DARE-GGUF** — тот же pipeline, другой `.gguf`.
-- Бенчмарк: 100 токенов / секунды ≈ tok/s (ориентир **60+** на 3060 Ti).
-
----
+| `401 Invalid API Key` | Передать `Authorization: Bearer <значение biomistral-api-key.txt>`; в Web UI вставить ключ в Settings. |
+| `huggingface-cli` не найден | Использовать `python -c "from huggingface_hub import login; login()"`. |
+| `The CUDA Toolkit directory '' does not exist` | В текущем окне задать `CudaToolkitDir`, `CUDA_PATH`, `CUDA_PATH_V13_4`, удалить `build`, снова запустить CMake с `-T cuda=...`. |
+| `llama-server.exe --version` не выводит текст | Добавить `CUDA\v13.4\bin\x64` в PATH, скопировать три CUDA DLL рядом с exe. |
+| Телефон не открывает страницу | Проверить один Wi-Fi, IP, что сервер запущен с `--host 0.0.0.0`, и правило Firewall `LocalSubnet`. |
+| CUDA OOM | Вернуть `ctx-size 2048`, закрыть другие GPU-программы. |
+| Фактическая ошибка / галлюцинация | Использовать английский, температуру 0.1–0.2, явный контекст и проверять ответ по источникам. |
+| Ответ обрезан | Сократить входной текст; у модели нативное окно 2048. |
 
 ## Источники
 
-- [BioMistral/BioMistral-7B](https://huggingface.co/BioMistral/BioMistral-7B)
-- [BioMistral/BioMistral-7B-GGUF](https://huggingface.co/BioMistral/BioMistral-7B-GGUF)
-- [BioMistral paper (arXiv:2402.10373)](https://arxiv.org/abs/2402.10373)
-- Prompt template: `<s>[INST] ... [/INST]` ([tensorblock GGUF card](https://huggingface.co/tensorblock/BioMistral-7B-GGUF))
+- [BioMistral model card](https://huggingface.co/BioMistral/BioMistral-7B)
+- [BioMistral GGUF](https://huggingface.co/BioMistral/BioMistral-7B-GGUF)
+- [BioMistral paper](https://arxiv.org/abs/2402.10373)
+- [llama.cpp server](https://github.com/ggml-org/llama.cpp/tree/master/tools/server)
