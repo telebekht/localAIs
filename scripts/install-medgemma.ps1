@@ -11,7 +11,7 @@
 #
 # Запуск из PowerShell одной строкой. В PowerShell имя curl — это Invoke-WebRequest,
 # поэтому здесь вызывается curl.exe.
-# Invoke-WebRequest -Uri "https://raw.githubusercontent.com/telebekht/localAIs/cursor/medgemma-install-964a/scripts/install-medgemma.ps1" -OutFile "$env:USERPROFILE\install-medgemma.ps1"; powershell.exe -NoExit -ExecutionPolicy Bypass -File "$env:USERPROFILE\install-medgemma.ps1"
+# Invoke-WebRequest -Uri "https://raw.githubusercontent.com/telebekht/localAIs/master/scripts/install-medgemma.ps1" -OutFile "$env:USERPROFILE\install-medgemma.ps1"; powershell.exe -NoExit -ExecutionPolicy Bypass -File "$env:USERPROFILE\install-medgemma.ps1"
 #
 # Другой диск: powershell.exe -ExecutionPolicy Bypass -File .\install-medgemma.ps1 -Root "E:\AI"
 param(
