@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # BioMistral-7B-Instruct Q4_K_M for the checklist machine:
 # i5-11500, 32 GB RAM, RTX 3060 Ti 8 GB, Windows 11.
-# Run from Git Bash. Research use only. Not for clinical decisions.
+# Launch from PowerShell, not with curl -fsSL (curl there is Invoke-WebRequest):
+# Invoke-WebRequest -Uri "https://raw.githubusercontent.com/telebekht/localAIs/cursor/biomistral-install-964a/scripts/install-biomistral.sh" -OutFile "$env:USERPROFILE\install-biomistral.sh"; & "C:\Program Files\Git\bin\bash.exe" "$env:USERPROFILE\install-biomistral.sh"
+# Research use only. Not for clinical decisions.
 set -euo pipefail
 
 PORT=8080
