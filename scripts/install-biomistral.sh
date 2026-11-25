@@ -42,7 +42,6 @@ case "$(uname -s)" in
 esac
 
 need curl
-need python
 need powershell.exe
 command -v unzip >/dev/null 2>&1 || command -v tar >/dev/null 2>&1 || die "Нужен unzip или tar."
 
@@ -116,29 +115,16 @@ extract_zip() {
 echo
 echo "Поиск последнего Windows CUDA $CUDA_TAG..."
 RELEASE_JSON="$(mktemp)"
-URLS_FILE="$(mktemp)"
-curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=20" -o "$RELEASE_JSON"
-python - "$RELEASE_JSON" "$CUDA_TAG" "$URLS_FILE" <<'PY'
-import json, sys
-path, cuda, out = sys.argv[1], sys.argv[2], sys.argv[3]
-releases = json.load(open(path, encoding="utf-8"))
-for rel in releases:
-    assets = {a["name"]: a["browser_download_url"] for a in rel.get("assets", [])}
-    bins = [n for n in assets if n.startswith("llama-") and n.endswith(f"-bin-win-cuda-{cuda}-x64.zip")]
-    runt = f"cudart-llama-bin-win-cuda-{cuda}-x64.zip"
-    if bins and runt in assets:
-        open(out, "w", encoding="utf-8").write(assets[bins[0]] + "\n" + assets[runt] + "\n")
-        raise SystemExit
-sys.exit("no-release")
-PY
-[[ -s "$URLS_FILE" ]] || die "Не найден релиз llama.cpp с CUDA $CUDA_TAG."
-mapfile -t URLS < "$URLS_FILE"
-rm -f "$RELEASE_JSON" "$URLS_FILE"
+curl -fsSL "https://api.github.com/repos/ggml-org/llama.cpp/releases?per_page=5" -o "$RELEASE_JSON"
+BIN_URL="$(grep -oE "https://github.com/ggml-org/llama.cpp/releases/download/[^\"[:space:]]+/llama-[^\"[:space:]]+-bin-win-cuda-${CUDA_TAG}-x64.zip" "$RELEASE_JSON" | head -n 1)"
+RT_URL="$(grep -oE "https://github.com/ggml-org/llama.cpp/releases/download/[^\"[:space:]]+/cudart-llama-bin-win-cuda-${CUDA_TAG}-x64.zip" "$RELEASE_JSON" | head -n 1)"
+rm -f "$RELEASE_JSON"
+[[ -n "$BIN_URL" && -n "$RT_URL" ]] || die "Не найден релиз llama.cpp с CUDA $CUDA_TAG."
 
 BIN_ZIP="$BIN_DIR/llama-cuda.zip"
 RT_ZIP="$BIN_DIR/cudart-cuda.zip"
-download "${URLS[0]}" "$BIN_ZIP"
-download "${URLS[1]}" "$RT_ZIP"
+download "$BIN_URL" "$BIN_ZIP"
+download "$RT_URL" "$RT_ZIP"
 extract_zip "$BIN_ZIP" "$BIN_DIR"
 extract_zip "$RT_ZIP" "$BIN_DIR"
 SERVER_FOUND="$(find "$BIN_DIR" -type f -name llama-server.exe | head -n 1)"
@@ -160,10 +146,7 @@ if [[ ! -f "$KEY_FILE" ]]; then
   if command -v openssl >/dev/null 2>&1; then
     printf '%s' "$(openssl rand -hex 32)" > "$KEY_FILE"
   else
-    python - <<PY
-import secrets
-open(r'''$KEY_FILE''', "w", encoding="ascii").write(secrets.token_hex(32))
-PY
+    MSYS_NO_PATHCONV=1 powershell.exe -NoProfile -Command "\$rng = New-Object System.Security.Cryptography.RNGCryptoServiceProvider; \$bytes = New-Object byte[] 32; \$rng.GetBytes(\$bytes); \$text = -join (\$bytes | ForEach-Object { \$_.ToString('x2') }); [System.IO.File]::WriteAllText('$(to_win "$KEY_FILE")', \$text)"
   fi
 fi
 

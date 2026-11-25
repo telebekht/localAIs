@@ -16,7 +16,7 @@
 
 На этой машине (Windows 11) скрипт [scripts/install-biomistral.sh](scripts/install-biomistral.sh) запускается из PowerShell одной строкой. В PowerShell `curl` — это `Invoke-WebRequest`, флаги `-fsSL` он не принимает. Нужен установленный Git for Windows: скрипт выполняет `C:\Program Files\Git\bin\bash.exe`.
 
-Скрипт спрашивает каталог (по умолчанию `D:/AI`), контекст (`2048` или `4096`) и доступ из домашней сети. Дальше сам выбирает CUDA 13.5 или 12.4 по драйверу RTX 3060 Ti, скачивает готовый `llama-server` и `ggml-model-Q4_K_M.gguf`, пишет ключ и ярлык на рабочем столе. Сборка Visual Studio не нужна. Фазы ниже — ручной путь, если автоустановка не подходит.
+Скрипт спрашивает каталог (по умолчанию `D:/AI`), контекст (`2048` или `4096`) и доступ из домашней сети. Дальше сам выбирает CUDA 13.5 или 12.4 по драйверу RTX 3060 Ti, скачивает готовый `llama-server` и `ggml-model-Q4_K_M.gguf`, пишет ключ и ярлык на рабочем столе. Python и сборка Visual Studio не нужны. Фазы ниже — ручной путь, если автоустановка не подходит.
 
 ```powershell
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/telebekht/localAIs/cursor/biomistral-install-964a/scripts/install-biomistral.sh" -OutFile "$env:USERPROFILE\install-biomistral.sh"; & "C:\Program Files\Git\bin\bash.exe" "$env:USERPROFILE\install-biomistral.sh"
