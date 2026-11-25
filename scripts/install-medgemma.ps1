@@ -1,14 +1,29 @@
-﻿# MedGemma 1.5 4B Q8_0 for the i5-11500 / 32 GB / RTX 3060 Ti 8 GB PC.
-# Research aid for lab sheets and images. Not a diagnosis and not a treatment.
-# Launch from PowerShell:
+﻿# MedGemma 1.5 4B Q8_0 на i5-11500, 32 ГБ ОЗУ, RTX 3060 Ti 8 ГБ.
+#
+# Что делает за один запуск:
+#   1. Берёт уже стоящий llama-server или скачивает готовую сборку CUDA.
+#   2. Скачивает веса Q8_0 и файл зрения mmproj. Без второго файла картинки не читаются.
+#   3. Кладёт ключ доступа, ярлык на рабочий стол и сразу запускает сервер.
+#
+# Модель читает бланк и снимки только как черновик перед врачом.
+# На МРТ она пропускает часть находок и может назвать то, чего на снимке нет.
+# Диагноз и лечение по её ответу не назначают.
+#
+# Запуск из PowerShell одной строкой. В PowerShell имя curl — это Invoke-WebRequest,
+# поэтому здесь вызывается curl.exe.
 # Invoke-WebRequest -Uri "https://raw.githubusercontent.com/telebekht/localAIs/cursor/medgemma-install-964a/scripts/install-medgemma.ps1" -OutFile "$env:USERPROFILE\install-medgemma.ps1"; powershell.exe -NoExit -ExecutionPolicy Bypass -File "$env:USERPROFILE\install-medgemma.ps1"
+#
+# Другой диск: powershell.exe -ExecutionPolicy Bypass -File .\install-medgemma.ps1 -Root "E:\AI"
 param(
     [string]$Root = "D:\AI"
 )
 
 $ErrorActionPreference = "Stop"
+# Windows PowerShell 5.1 иначе может отказаться от HTTPS.
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# 8080 — страница http://127.0.0.1:8080. Контекст 8192 оставляет место под картинку в 8 ГБ.
+# 10 потоков: у i5-11500 их 12, два остаются Windows.
 $Port = 8080
 $Threads = 10
 $Ctx = 8192
@@ -17,6 +32,8 @@ $MmprojUrl = "https://huggingface.co/unsloth/medgemma-1.5-4b-it-GGUF/resolve/mai
 $ModelName = "medgemma-1.5-4b-it-Q8_0.gguf"
 $MmprojName = "mmproj-F16.gguf"
 
+# Повторный запуск не качает файл заново, если он уже не меньше ожидаемого размера.
+# Обрезок от оборванной загрузки удаляется. curl.exe, не команда curl из PowerShell.
 function Get-CurlFile {
     param([string]$Url, [string]$Dest, [int64]$MinBytes)
     if (Test-Path -LiteralPath $Dest) {
@@ -44,8 +61,10 @@ $ModelDir = Join-Path $Root "models\medgemma"
 $Scripts = Join-Path $Root "scripts"
 New-Item -ItemType Directory -Force -Path $BinDir, $ModelDir, $Scripts | Out-Null
 
+# Сервер от BioMistral в D:\AI уже подходит: ту же сборку второй раз не качаем.
 $Server = Join-Path $BinDir "llama-server.exe"
 if (-not (Test-Path -LiteralPath $Server)) {
+    # CUDA 13.5 требует драйвер 580 или новее. На более старом драйвере берём 12.4.
     $cudaTag = "12.4"
     $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
     if ($smi) {
@@ -72,6 +91,7 @@ if (-not (Test-Path -LiteralPath $Server)) {
     & tar.exe -xf $rtZip -C $BinDir
     $found = Get-ChildItem -LiteralPath $BinDir -Recurse -Filter "llama-server.exe" | Select-Object -First 1
     if (-not $found) { throw "В архиве нет llama-server.exe." }
+    # DLL CUDA должны лежать рядом с exe, иначе сервер молча не запускается.
     $payload = @(Get-ChildItem -LiteralPath $BinDir -Recurse -File | Where-Object {
         $_.DirectoryName -ne $BinDir -and ($_.Extension -eq ".exe" -or $_.Extension -eq ".dll")
     })
@@ -83,11 +103,14 @@ if (-not (Test-Path -LiteralPath $Server)) {
     Write-Host "llama-server уже стоит: $Server"
 }
 
+# Q8_0 — самый точный квант этой модели, который вместе с mmproj входит в 8 ГБ.
+# Порог размера отсекает оборванный файл: целый Q8_0 около 4,1 ГБ, mmproj около 0,85 ГБ.
 $ModelPath = Join-Path $ModelDir $ModelName
 $MmprojPath = Join-Path $ModelDir $MmprojName
 Get-CurlFile $ModelUrl $ModelPath 3500000000
 Get-CurlFile $MmprojUrl $MmprojPath 700000000
 
+# Тот же ключ, что уже вставлен в браузер для BioMistral. Новый создаётся, только если старого нет.
 $KeyFile = Join-Path $Scripts "medgemma-api-key.txt"
 $OldKey = Join-Path $Scripts "biomistral-api-key.txt"
 if (-not (Test-Path -LiteralPath $KeyFile)) {
@@ -102,6 +125,9 @@ if (-not (Test-Path -LiteralPath $KeyFile)) {
     }
 }
 
+# Поле System Message на веб-странице попадает только в чат, которого ещё не было.
+# Поэтому фраза «отвечай по-русски» вшита в каждый вопрос пользователя.
+# Шаблон — тот же Gemma, что лежит в файле модели, плюс эта фраза.
 $Template = Join-Path $Scripts "medgemma-ru.jinja"
 $templateText = @'
 {{ bos_token }}
@@ -156,11 +182,16 @@ $templateText = @'
 ' }}
 {%- endif -%}
 '@
+# Без метки BOM: парсер шаблона llama.cpp спотыкается о первые три байта UTF-8.
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($Template, $templateText, $utf8)
 
+# --jinja обязателен до --chat-template-file, иначе свой шаблон не примется.
+# Температура 0.2 меньше выдумывает цифры на бланке. Повторный штраф 1.05 не даёт зациклиться.
 $Launcher = Join-Path $Scripts "Start-MedGemma.ps1"
 @"
+# Запуск MedGemma. Картинки идут через --mmproj, русский ответ через шаблон.
+# Окно не закрывать: в нём работает сервер. Второй llama-server в 8 ГБ не помещается.
 `$ErrorActionPreference = "Stop"
 `$env:Path = "$BinDir;" + `$env:Path
 Get-Process llama-server -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -171,6 +202,7 @@ Write-Host "KEY: $KeyFile"
 & "$Server" --jinja --chat-template-file "$Template" --model "$ModelPath" --mmproj "$MmprojPath" --host 0.0.0.0 --port $Port --api-key-file "$KeyFile" --alias "medgemma-1.5-4b" --ctx-size $Ctx --n-gpu-layers 99 --parallel 1 --threads $Threads --temp 0.2 --top-p 0.9 --repeat-penalty 1.05
 "@ | Set-Content -LiteralPath $Launcher -Encoding UTF8
 
+# Ярлык на рабочем столе запускает тот же файл после перезагрузки.
 $shell = New-Object -ComObject WScript.Shell
 $lnk = $shell.CreateShortcut((Join-Path ([Environment]::GetFolderPath("Desktop")) "MedGemma.lnk"))
 $lnk.TargetPath = "powershell.exe"
@@ -178,6 +210,8 @@ $lnk.Arguments = "-NoExit -ExecutionPolicy Bypass -File `"$Launcher`""
 $lnk.WorkingDirectory = $Root
 $lnk.Save()
 
+# 0.0.0.0 слушает домашнюю сеть. Правило пускает только LocalSubnet, не весь интернет.
+# Без прав администратора установка продолжится, правило просто не создастся.
 try {
     $rule = Get-NetFirewallRule -DisplayName "MedGemma $Port LAN" -ErrorAction SilentlyContinue
     if (-not $rule) {
