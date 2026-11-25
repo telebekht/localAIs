@@ -102,6 +102,63 @@ if (-not (Test-Path -LiteralPath $KeyFile)) {
     }
 }
 
+$Template = Join-Path $Scripts "medgemma-ru.jinja"
+$templateText = @'
+{{ bos_token }}
+{%- if messages[0]['role'] == 'system' -%}
+    {%- if messages[0]['content'] is string -%}
+        {%- set first_user_prefix = messages[0]['content'] + '
+
+' -%}
+    {%- else -%}
+        {%- set first_user_prefix = messages[0]['content'][0]['text'] + '
+
+' -%}
+    {%- endif -%}
+    {%- set loop_messages = messages[1:] -%}
+{%- else -%}
+    {%- set first_user_prefix = '' -%}
+    {%- set loop_messages = messages -%}
+{%- endif -%}
+{%- for message in loop_messages -%}
+    {%- if (message['role'] == 'user') != (loop.index0 % 2 == 0) -%}
+        {{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}
+    {%- endif -%}
+    {%- if (message['role'] == 'assistant') -%}
+        {%- set role = 'model' -%}
+    {%- else -%}
+        {%- set role = message['role'] -%}
+    {%- endif -%}
+    {{ '<start_of_turn>' + role + '
+' + (first_user_prefix if loop.first else '') }}
+    {%- if message['role'] == 'user' -%}
+Отвечай только по-русски. Латинские названия можно оставить, пояснение пиши по-русски. Не ставь диагноз и не назначай лечение.
+
+    {%- endif -%}
+    {%- if message['content'] is string -%}
+        {{ message['content'] | trim }}
+    {%- elif message['content'] is iterable -%}
+        {%- for item in message['content'] -%}
+            {%- if item['type'] == 'image' -%}
+                {{ '<start_of_image>' }}
+            {%- elif item['type'] == 'text' -%}
+                {{ item['text'] | trim }}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- elif message['content'] -%}
+        {{ raise_exception('Invalid content type') }}
+    {%- endif -%}
+    {{ '<end_of_turn>
+' }}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{ '<start_of_turn>model
+' }}
+{%- endif -%}
+'@
+$utf8 = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($Template, $templateText, $utf8)
+
 $Launcher = Join-Path $Scripts "Start-MedGemma.ps1"
 @"
 `$ErrorActionPreference = "Stop"
@@ -111,7 +168,7 @@ Start-Sleep -Seconds 2
 Write-Host "MODEL: $ModelPath"
 Write-Host "MMPROJ: $MmprojPath"
 Write-Host "KEY: $KeyFile"
-& "$Server" --model "$ModelPath" --mmproj "$MmprojPath" --host 0.0.0.0 --port $Port --api-key-file "$KeyFile" --alias "medgemma-1.5-4b" --ctx-size $Ctx --n-gpu-layers 99 --parallel 1 --threads $Threads --temp 0.2 --top-p 0.9 --repeat-penalty 1.05
+& "$Server" --jinja --chat-template-file "$Template" --model "$ModelPath" --mmproj "$MmprojPath" --host 0.0.0.0 --port $Port --api-key-file "$KeyFile" --alias "medgemma-1.5-4b" --ctx-size $Ctx --n-gpu-layers 99 --parallel 1 --threads $Threads --temp 0.2 --top-p 0.9 --repeat-penalty 1.05
 "@ | Set-Content -LiteralPath $Launcher -Encoding UTF8
 
 $shell = New-Object -ComObject WScript.Shell
@@ -135,6 +192,7 @@ Write-Host "Ключ: $KeyFile"
 Write-Host (Get-Content -LiteralPath $KeyFile -Raw)
 Write-Host "Веб: http://127.0.0.1:$Port"
 Write-Host "Картинку прикрепляйте кнопкой + . Бланк по одной странице, МРТ несколькими срезами PNG."
+Write-Host "После запуска откройте новый чат: старый диалог уже на английском, модель его продолжит."
 Write-Host "Запускаю сервер. Окно не закрывайте."
 Write-Host ""
 
